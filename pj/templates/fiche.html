@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block titre %}{{ e.nom }}{% endblock %}
+
+{% block contenu %}
+<p class="fil"><a href="{{ url_for('index') }}">← Retour à la liste</a></p>
+
+<article class="fiche">
+  <header>
+    <h1>{{ e.nom }}</h1>
+    <p class="fiche__meta">
+      <span class="pastille pastille--{{ e.statut }}">{{ statuts[e.statut] }}</span>
+      {% if e.annonce %}<span class="etiquette">annonce payante</span>{% endif %}
+      {% if e.url_pj %}<a href="{{ e.url_pj }}" target="_blank" rel="noopener">Fiche PagesJaunes ↗</a>{% endif %}
+    </p>
+  </header>
+
+  <dl class="donnees">
+    <div>
+      <dt>Téléphone</dt>
+      <dd>
+        {% if e.telephone %}
+          <a class="gros-tel" href="tel:{{ e.telephone }}">{{ e.telephone }}</a>
+        {% else %}—{% endif %}
+        {% set autres = e.telephones | json_liste %}
+        {% if autres | length > 1 %}
+          <div class="autres-tels">
+            Autres numéros :
+            {% for numero in autres[1:] %}
+              <a href="tel:{{ numero }}">{{ numero }}</a>{{ ", " if not loop.last }}
+            {% endfor %}
+          </div>
+        {% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt>Secteur d'activité</dt>
+      <dd>
+        {{ e.secteur or e.recherche_industrie or '—' }}
+        {% set rubriques = e.rubriques | json_liste %}
+        {% if rubriques | length > 1 %}
+          <div class="autres-tels">Aussi : {{ rubriques[1:] | join(' · ') }}</div>
+        {% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt>Adresse</dt>
+      <dd>
+        {{ e.adresse or '—' }}<br>
+        {{ e.ville or '' }} {{ e.province or '' }} {{ e.code_postal or '' }}
+      </dd>
+    </div>
+    <div>
+      <dt>Site web</dt>
+      <dd>
+        {% if e.site_web %}
+          <a href="{{ e.site_web }}" target="_blank" rel="noopener">{{ e.site_web | truncate(50) }}</a>
+        {% else %}—{% endif %}
+      </dd>
+    </div>
+    {% if e.services %}
+      <div class="pleine-largeur">
+        <dt>Services annoncés</dt>
+        <dd>{{ e.services }}</dd>
+      </div>
+    {% endif %}
+    <div>
+      <dt>Recherche d'origine</dt>
+      <dd>{{ e.recherche_industrie or '—' }} / {{ e.recherche_ville or '—' }}</dd>
+    </div>
+    <div>
+      <dt>Dernière mise à jour</dt>
+      <dd>{{ e.maj_le[:16] | replace('T', ' à ') }}</dd>
+    </div>
+  </dl>
+</article>
+
+<div class="colonnes">
+  <section class="bloc">
+    <h2>Nouvelle note d'appel</h2>
+    <form method="post" action="{{ url_for('ajouter_note', entreprise_id=e.id) }}">
+      <label>
+        Note
+        <textarea name="texte" rows="5" required
+                  placeholder="Ce qui a été dit, la personne rejointe, la suite à donner…"></textarea>
+      </label>
+      <div class="rangee">
+        <label>
+          Résultat de l'appel
+          <select name="resultat">
+            {% for code, libelle in resultats.items() %}
+              <option value="{{ code }}">{{ libelle }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          Nouveau statut
+          <select name="statut">
+            <option value="">— inchangé —</option>
+            {% for code, libelle in statuts.items() %}
+              <option value="{{ code }}">{{ libelle }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <div class="rangee">
+        <label>
+          Rappeler le
+          <input type="date" name="rappel_le" value="{{ e.rappel_le or '' }}">
+        </label>
+        <label>
+          Par (optionnel)
+          <input type="text" name="auteur" placeholder="Tes initiales">
+        </label>
+      </div>
+      <button type="submit">Enregistrer la note</button>
+    </form>
+
+    <h2>Coordonnées de prospection</h2>
+    <form method="post" action="{{ url_for('modifier_champs', entreprise_id=e.id) }}">
+      <div class="rangee">
+        <label>
+          Statut
+          <select name="statut">
+            {% for code, libelle in statuts.items() %}
+              <option value="{{ code }}" {{ 'selected' if code == e.statut }}>{{ libelle }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          Date de rappel
+          <input type="date" name="rappel_le" value="{{ e.rappel_le or '' }}">
+        </label>
+      </div>
+      <div class="rangee">
+        <label>
+          Personne contact
+          <input type="text" name="contact_nom" value="{{ e.contact_nom or '' }}">
+        </label>
+        <label>
+          Courriel
+          <input type="email" name="courriel" value="{{ e.courriel or '' }}">
+        </label>
+      </div>
+      <label>
+        Téléphone à composer
+        <input type="text" name="telephone" value="{{ e.telephone or '' }}"
+               placeholder="514-555-0000">
+      </label>
+      <button type="submit">Mettre à jour la fiche</button>
+    </form>
+  </section>
+
+  <section class="bloc">
+    <h2>Historique ({{ notes | length }})</h2>
+    {% if notes %}
+      <ol class="historique">
+        {% for note in notes %}
+          <li>
+            <div class="historique__entete">
+              <time>{{ note.cree_le[:16] | replace('T', ' à ') }}</time>
+              {% if note.resultat %}
+                <span class="etiquette">{{ resultats.get(note.resultat, note.resultat) }}</span>
+              {% endif %}
+              {% if note.auteur %}<span class="auteur">{{ note.auteur }}</span>{% endif %}
+              <form method="post" action="{{ url_for('supprimer_note', note_id=note.id) }}"
+                    onsubmit="return confirm('Supprimer cette note ?')">
+                <input type="hidden" name="retour"
+                       value="{{ url_for('fiche', entreprise_id=e.id) }}">
+                <button class="lien-danger" type="submit" title="Supprimer">×</button>
+              </form>
+            </div>
+            <p>{{ note.texte }}</p>
+          </li>
+        {% endfor %}
+      </ol>
+    {% else %}
+      <p class="vide">Aucune note pour l'instant.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

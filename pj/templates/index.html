@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block titre %}Entreprises{% endblock %}
+
+{% block contenu %}
+<section class="tuiles">
+  <div class="tuile"><b>{{ stats.total }}</b><span>entreprises</span></div>
+  <div class="tuile"><b>{{ stats.par_statut.get('a_appeler', 0) }}</b><span>à appeler</span></div>
+  <div class="tuile"><b>{{ stats.par_statut.get('rappeler', 0) }}</b><span>à rappeler</span></div>
+  <div class="tuile"><b>{{ stats.par_statut.get('interesse', 0) }}</b><span>intéressés</span></div>
+  <div class="tuile"><b>{{ stats.notes }}</b><span>notes d'appel</span></div>
+  <div class="tuile {% if stats.rappels_dus %}tuile--alerte{% endif %}">
+    <b>{{ stats.rappels_dus }}</b><span>rappels dus</span>
+  </div>
+</section>
+
+<form class="filtres" method="get" action="{{ url_for('index') }}">
+  <input type="search" name="q" value="{{ filtres.q }}"
+         placeholder="Nom, téléphone, adresse, code postal, service…">
+
+  <select name="secteur">
+    <option value="">Tous les secteurs</option>
+    {% for secteur in secteurs %}
+      <option value="{{ secteur }}" {{ 'selected' if secteur == filtres.secteur }}>{{ secteur }}</option>
+    {% endfor %}
+  </select>
+
+  <select name="ville">
+    <option value="">Toutes les villes</option>
+    {% for ville in villes %}
+      <option value="{{ ville }}" {{ 'selected' if ville == filtres.ville }}>{{ ville }}</option>
+    {% endfor %}
+  </select>
+
+  <select name="statut">
+    <option value="">Tous les statuts</option>
+    {% for code, libelle in statuts.items() %}
+      <option value="{{ code }}" {{ 'selected' if code == filtres.statut }}>{{ libelle }}</option>
+    {% endfor %}
+  </select>
+
+  <select name="tri">
+    {% for code, libelle in [('nom', 'Nom'), ('ville', 'Ville'), ('secteur', 'Secteur'),
+                             ('statut', 'Statut'), ('recent', 'Ajout récent'),
+                             ('activite', 'Dernière note'), ('rappel', 'Date de rappel')] %}
+      <option value="{{ code }}" {{ 'selected' if code == tri }}>Tri : {{ libelle }}</option>
+    {% endfor %}
+  </select>
+
+  <label class="case">
+    <input type="checkbox" name="avec_notes" value="1" {{ 'checked' if filtres.avec_notes }}>
+    Avec notes
+  </label>
+  <label class="case">
+    <input type="checkbox" name="rappels_dus" value="1" {{ 'checked' if filtres.rappels_dus }}>
+    Rappels dus
+  </label>
+
+  <button type="submit">Filtrer</button>
+  <a class="bouton bouton--fantome" href="{{ url_for('index') }}">Réinitialiser</a>
+  <a class="bouton bouton--fantome"
+     href="{{ url_for('export_csv', **request.args) }}">Exporter le CSV</a>
+</form>
+
+<p class="compte">
+  {{ total }} entreprise(s) — page {{ page }} sur {{ pages_total }}
+</p>
+
+{% if entreprises %}
+<table class="liste">
+  <thead>
+    <tr>
+      <th>Entreprise</th>
+      <th>Téléphone</th>
+      <th>Secteur d'activité</th>
+      <th>Adresse</th>
+      <th>Statut</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for e in entreprises %}
+    <tr class="ligne ligne--{{ e.statut }}">
+      <td>
+        <a class="nom" href="{{ url_for('fiche', entreprise_id=e.id) }}">{{ e.nom }}</a>
+        {% if e.annonce %}<span class="etiquette">annonce</span>{% endif %}
+        {% if e.rappel_le %}
+          <span class="etiquette {% if e.rappel_le <= aujourdhui %}etiquette--alerte{% endif %}">
+            rappel {{ e.rappel_le }}
+          </span>
+        {% endif %}
+      </td>
+      <td class="tel">
+        {% if e.telephone %}<a href="tel:{{ e.telephone }}">{{ e.telephone }}</a>{% else %}—{% endif %}
+        {% set autres = e.telephones | json_liste %}
+        {% if autres | length > 1 %}
+          <small>{{ autres[1:] | join(', ') }}</small>
+        {% endif %}
+      </td>
+      <td>{{ e.secteur or e.recherche_industrie or '—' }}</td>
+      <td class="adresse">
+        {{ e.adresse or '—' }}<br>
+        <small>{{ e.ville or '' }} {{ e.province or '' }} {{ e.code_postal or '' }}</small>
+      </td>
+      <td>
+        <form method="post" action="{{ url_for('changer_statut', entreprise_id=e.id) }}">
+          <input type="hidden" name="retour" value="{{ request.full_path }}">
+          <select name="statut" onchange="this.form.submit()">
+            {% for code, libelle in statuts.items() %}
+              <option value="{{ code }}" {{ 'selected' if code == e.statut }}>{{ libelle }}</option>
+            {% endfor %}
+          </select>
+        </form>
+      </td>
+      <td class="notes-apercu">
+        {% if e.nb_notes %}
+          <a href="{{ url_for('fiche', entreprise_id=e.id) }}">{{ e.nb_notes }} note(s)</a>
+          <small>{{ e.derniere_note | truncate(70) }}</small>
+        {% else %}
+          <a class="bouton bouton--mini" href="{{ url_for('fiche', entreprise_id=e.id) }}">
+            + Note
+          </a>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<nav class="pagination">
+  {% set args = request.args.to_dict() %}
+  {% if page > 1 %}
+    {% set _ = args.update({'page': page - 1}) %}
+    <a href="{{ url_for('index', **args) }}">← Précédent</a>
+  {% endif %}
+  {% if page < pages_total %}
+    {% set _ = args.update({'page': page + 1}) %}
+    <a href="{{ url_for('index', **args) }}">Suivant →</a>
+  {% endif %}
+</nav>
+{% else %}
+<p class="vide">
+  Aucune entreprise ne correspond.
+  <a href="{{ url_for('scraping') }}">Lancer un scraping</a> pour remplir la base.
+</p>
+{% endif %}
+{% endblock %}

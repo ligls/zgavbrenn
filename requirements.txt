@@ -1,0 +1,6 @@
+requests>=2.31
+beautifulsoup4>=4.12
+lxml>=5.0
+Flask>=3.0
+tqdm>=4.66
+colorama>=0.4.6; sys_platform == "win32"

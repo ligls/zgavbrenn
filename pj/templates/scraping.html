@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block titre %}Scraping{% endblock %}
+
+{% block contenu %}
+<h1>Récupérer des entreprises sur PagesJaunes.ca</h1>
+
+<div id="etat" class="etat {{ 'etat--actif' if etat.en_cours }}">
+  <p id="etat-texte">
+    {% if etat.en_cours %}
+      Scraping en cours…
+    {% elif etat.ajouts or etat.mises_a_jour %}
+      Dernier scraping : {{ etat.ajouts }} ajout(s), {{ etat.mises_a_jour }} mise(s) à jour.
+    {% else %}
+      Aucun scraping en cours.
+    {% endif %}
+  </p>
+  <p id="etat-detail" class="etat__detail">{{ etat.message }}</p>
+</div>
+
+<form class="bloc" method="post" action="{{ url_for('scraping') }}">
+  <h2>Industries</h2>
+  <p class="aide">
+    Coche des rubriques officielles et/ou tape tes propres mots-clés (un par ligne).
+  </p>
+  {% for famille, noms in familles.items() %}
+    <fieldset>
+      <legend>{{ famille }}</legend>
+      <div class="cases">
+        {% for nom in noms %}
+          <label class="case">
+            <input type="checkbox" name="industries" value="{{ nom }}"> {{ nom }}
+          </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+  {% endfor %}
+  <label>
+    Mots-clés libres (un par ligne)
+    <textarea name="industries_libres" rows="3"
+              placeholder="Fabricants de portes&#10;Toiture métallique"></textarea>
+  </label>
+
+  <h2>Villes et régions</h2>
+  <p class="aide">Format attendu par PagesJaunes : « Montreal QC », « Quebec QC »…</p>
+  <fieldset>
+    <legend>Villes</legend>
+    <div class="cases">
+      {% for ville in villes_suggerees %}
+        <label class="case">
+          <input type="checkbox" name="villes" value="{{ ville }}"
+                 {{ 'checked' if loop.first }}> {{ ville }}
+        </label>
+      {% endfor %}
+    </div>
+  </fieldset>
+  <fieldset>
+    <legend>Régions (plus large, prévoir plus de pages)</legend>
+    <div class="cases">
+      {% for region in regions %}
+        <label class="case">
+          <input type="checkbox" name="villes" value="{{ region }}"> {{ region }}
+        </label>
+      {% endfor %}
+    </div>
+  </fieldset>
+  <label>
+    Autres lieux (un par ligne)
+    <textarea name="villes_libres" rows="2" placeholder="Saint-Eustache QC"></textarea>
+  </label>
+
+  <h2>Réglages</h2>
+  <div class="rangee">
+    <label>
+      Pages maximum par recherche (35 fiches par page)
+      <input type="number" name="pages" value="3" min="1" max="40">
+    </label>
+    <label>
+      Délai entre les requêtes (secondes)
+      <input type="number" name="delai" value="{{ delai_defaut }}" min="1" max="30" step="0.5">
+    </label>
+  </div>
+  <p class="aide">
+    Un délai de 2 à 3 secondes garde un rythme comparable à une navigation
+    humaine. Les fiches déjà en base sont mises à jour : les statuts et les
+    notes ne sont jamais écrasés.
+  </p>
+  <button type="submit">Lancer le scraping</button>
+</form>
+
+<section class="bloc">
+  <h2>Journal</h2>
+  <pre id="journal">{{ etat.journal | join('\n') }}</pre>
+</section>
+
+<script>
+// Rafraîchit l'état du scraping sans recharger la page.
+(function () {
+  const etat = document.getElementById('etat');
+  const texte = document.getElementById('etat-texte');
+  const detail = document.getElementById('etat-detail');
+  const journal = document.getElementById('journal');
+
+  async function sonder() {
+    try {
+      const reponse = await fetch('{{ url_for("etat") }}');
+      const donnees = await reponse.json();
+      etat.classList.toggle('etat--actif', donnees.en_cours);
+      texte.textContent = donnees.erreur
+        ? 'Erreur : ' + donnees.erreur
+        : (donnees.en_cours ? 'Scraping en cours… ' : 'Dernier scraping : ')
+          + donnees.ajouts + ' ajout(s), ' + donnees.mises_a_jour + ' mise(s) à jour.';
+      detail.textContent = donnees.message || '';
+      journal.textContent = (donnees.journal || []).join('\n');
+    } catch (erreur) {
+      // Serveur arrêté : on cesse simplement de sonder.
+    }
+  }
+
+  sonder();
+  setInterval(sonder, 2000);
+})();
+</script>
+{% endblock %}
