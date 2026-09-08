@@ -109,6 +109,34 @@ python -m pj.cli stats
 Le CSV utilise `;` comme séparateur et un BOM UTF-8 : Excel en français
 l'ouvre correctement, accents compris.
 
+## Sans terminal (Chromebook, poste verrouillé)
+
+Les deux commandes ci-dessus demandent un terminal. Si tu n'en as pas, le
+carnet d'appels vit sur le web à la place : les fiches et les notes sont
+stockées côté serveur et s'ouvrent depuis n'importe quel navigateur.
+
+- **Carnet d'appels chantiers** — https://claude.ai/code/artifact/aea59a3f-49a6-429f-a6d0-9c96ea273016
+  150 entrepreneurs en construction de 19 villes régionales. Statuts, notes
+  d'appel, dates de rappel et export CSV, sans rien installer.
+- Pour ajouter des fiches ou changer de secteur, il faut relancer une
+  extraction : c'est ce que fait `scripts/prospection_regions.py`.
+
+## Extraction ciblée : villes régionales
+
+`scripts/prospection_regions.py` reproduit l'extraction du 2026-09-08 —
+5 métiers de la construction dans 18 villes régionales, en écartant les
+régions métropolitaines déjà démarchées :
+
+```bash
+python scripts/prospection_regions.py                     # scrape puis exporte
+python scripts/prospection_regions.py --export-seulement  # réexporte la base
+```
+
+Une page de résultats par recherche suffit : au-delà, PagesJaunes élargit le
+rayon et renvoie des entreprises hors de la région visée. Le script écarte
+aussi les fiches sans téléphone, sans adresse ou sans code postal, et les
+doublons de numéro (une même entreprise listée sous plusieurs rubriques).
+
 ## Structure
 
 ```
