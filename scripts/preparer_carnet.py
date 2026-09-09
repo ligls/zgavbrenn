@@ -18,9 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
-import unicodedata
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -34,20 +32,50 @@ from scripts.prospection_regions import (  # noqa: E402
     graphies_canoniques,
 )
 
-# Les rubriques que PagesJaunes renvoie réellement, regroupées par industrie.
-"""Les 19 villes visées par les recherches, dans leur orthographe PagesJaunes.
-
-Le scraping ramène aussi les municipalités voisines : elles restent utiles,
-mais passent après, pour que les appels se fassent par grappes.
-"""
+# Les villes où les recherches ont réellement été lancées, dans l'orthographe
+# de PagesJaunes. Le scraping ramène aussi les municipalités voisines : elles
+# restent utiles, mais passent après, pour que les appels se fassent par
+# grappes plutôt qu'à raison d'une fiche par village.
 VILLES_VISEES = {
+    # Premier lot : 18 villes régionales
     "Drummondville", "Granby", "Saint-Hyacinthe", "Victoriaville", "Sorel-Tracy",
     "Joliette", "Rimouski", "Rouyn-Noranda", "Val-d'Or", "Alma", "Shawinigan",
     "Salaberry-de-Valleyfield", "Saint-Georges", "Thetford Mines",
     "Rivière-du-Loup", "Magog", "Sept-Îles", "Baie-Comeau", "Amos",
+    # Extension aux 17 régions administratives
+    "Matane", "Mont-Joli", "Amqui", "La Pocatière",
+    "Dolbeau-Mistassini", "Roberval", "Saint-Félicien",
+    "Baie-Saint-Paul", "La Malbaie", "Saint-Raymond", "Donnacona",
+    "La Tuque", "Louiseville", "Saint-Tite",
+    "Coaticook", "Lac-Mégantic", "Windsor", "Val-des-Sources",
+    "Maniwaki", "Papineauville", "Thurso",
+    "La Sarre", "Ville-Marie", "Senneterre",
+    "Forestville", "Port-Cartier", "Havre-Saint-Pierre",
+    "Chibougamau", "Matagami",
+    "Gaspé", "Chandler", "New Richmond", "Sainte-Anne-des-Monts",
+    "Carleton-sur-Mer", "Cap-aux-Meules",
+    "Montmagny", "Sainte-Marie", "Saint-Joseph-de-Beauce", "Lac-Etchemin",
+    "Rawdon", "Berthierville", "Saint-Gabriel",
+    "Mont-Laurier", "Sainte-Agathe-des-Monts", "Lachute", "Mont-Tremblant",
+    "Saint-Jean-sur-Richelieu", "Cowansville", "Farnham", "Huntingdon",
+    "Nicolet", "Plessisville",
+    # Régions métropolitaines
+    "Montréal", "Laval", "Longueuil", "Québec", "Lévis", "Gatineau",
+    "Sherbrooke", "Trois-Rivières", "Saguenay", "Terrebonne", "Brossard",
+    "Repentigny", "Saint-Jérôme", "Vaudreuil-Dorion",
 }
 
+# Un groupe par rubrique pour doser chaque métier, plus des groupes composites
+# quand on veut simplement « de la construction » ou « du nettoyage ».
 GROUPES = {
+    "plomberie": ["Plombiers et entrepreneurs en plomberie"],
+    "electriciens": ["Électriciens"],
+    "generaux": ["Entrepreneurs généraux"],
+    "couvreurs": ["Couvreurs"],
+    "excavation": ["Entrepreneurs en excavation"],
+    "nettoyage_ci": ["Nettoyage résidentiel, commercial et industriel"],
+    "conciergerie": ["Service de conciergerie"],
+    "paysagement": ["Paysagistes et aménagement extérieur"],
     "construction": [
         "Plombiers et entrepreneurs en plomberie",
         "Électriciens",
@@ -55,27 +83,23 @@ GROUPES = {
         "Couvreurs",
         "Entrepreneurs en excavation",
     ],
-    "electriciens": ["Électriciens"],
     "nettoyage": [
         "Nettoyage résidentiel, commercial et industriel",
         "Service de conciergerie",
         "Lavage de vitres",
     ],
-    "paysagement": [
-        "Paysagistes et aménagement extérieur",
-        "Entretien de gazon",
-        "Architectes paysagistes",
-        "Gazon et service de gazonnement",
-    ],
 }
 
 
-def fiches_exploitables(conn, exclus_id: set[str], exclus_tel: set[str]) -> list:
-    """Fiches régionales appelables, hors doublons et hors carnet actuel."""
+def fiches_exploitables(conn, exclus_id: set[str], exclus_tel: set[str],
+                        metropoles: bool = False) -> list:
+    """Fiches appelables, hors doublons et hors carnet actuel."""
     retenues, numeros_vus = [], set(exclus_tel)
     for ligne in db.lister(conn, limite=None):
         cle = cle_ville(ligne["ville"])
-        if not cle or len(cle) < 3 or cle in REBUTS or cle in METROPOLES:
+        if not cle or len(cle) < 3 or cle in REBUTS:
+            continue
+        if not metropoles and cle in METROPOLES:
             continue
         if (ligne["province"] or "QC").upper() != "QC":
             continue
@@ -127,7 +151,7 @@ def repartir(fiches: list, canon: dict[str, str], rubriques: list[str],
     return choisies
 
 
-def document(ligne, canon: dict[str, str]) -> dict:
+def document(ligne, canon: dict[str, str], statut: str = "a_appeler") -> dict:
     """Le corps de document attendu par la page du carnet."""
     return {
         "nom": ligne["nom"],
@@ -141,7 +165,7 @@ def document(ligne, canon: dict[str, str]) -> dict:
         "web": ligne["site_web"],
         "annonce": bool(ligne["annonce"]),
         "urlPj": ligne["url_pj"],
-        "statut": "a_appeler",
+        "statut": statut,
         "notes": [],
     }
 
@@ -154,6 +178,11 @@ def main(argv: list[str] | None = None) -> int:
                          help=f"groupe et quantité, parmi : {', '.join(GROUPES)}")
     parseur.add_argument("--deja-dans-le-carnet", type=Path, default=None,
                          help="dossier de fichiers JSON exportés du carnet, à exclure")
+    parseur.add_argument("--inclure-metropoles", action="store_true",
+                         help="garder aussi Montréal, Québec, Gatineau et les autres "
+                              "régions métropolitaines (exclues par défaut)")
+    parseur.add_argument("--statut", default="a_appeler",
+                         help="statut initial des fiches produites (défaut : a_appeler)")
     parseur.add_argument("--sortie", type=Path,
                          default=Path("seed_carnet"), help="dossier des fiches à envoyer")
     args = parseur.parse_args(argv)
@@ -181,8 +210,10 @@ def main(argv: list[str] | None = None) -> int:
 
     conn = db.connexion(args.base)
     canon = graphies_canoniques(db.lister(conn, limite=None))
-    bassin = fiches_exploitables(conn, exclus_id, exclus_tel)
-    print(f"Bassin exploitable hors carnet : {len(bassin)} fiches.")
+    bassin = fiches_exploitables(conn, exclus_id, exclus_tel,
+                                 metropoles=args.inclure_metropoles)
+    print(f"Bassin exploitable hors carnet : {len(bassin)} fiches"
+          + (" (métropoles incluses)." if args.inclure_metropoles else "."))
 
     args.sortie.mkdir(parents=True, exist_ok=True)
     for ancien in args.sortie.glob("*.json"):
@@ -196,7 +227,7 @@ def main(argv: list[str] | None = None) -> int:
             deja_pris.add(ligne["yp_id"])
             chemin = args.sortie / f"{ligne['yp_id']}.json"
             chemin.write_text(
-                json.dumps(document(ligne, canon), ensure_ascii=False),
+                json.dumps(document(ligne, canon, args.statut), ensure_ascii=False),
                 encoding="utf-8",
             )
             entrees.append({"op": "set", "collection": "leads",

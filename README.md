@@ -126,9 +126,9 @@ stockées côté serveur et s'ouvrent depuis n'importe quel navigateur.
 
 ## Extraction ciblée : villes régionales
 
-`scripts/prospection_regions.py` reproduit l'extraction du 2026-09-08 —
+`scripts/prospection_regions.py` reproduit l'extraction initiale —
 5 métiers de la construction dans 18 villes régionales, en écartant les
-régions métropolitaines déjà démarchées :
+régions métropolitaines :
 
 ```bash
 python scripts/prospection_regions.py                     # scrape puis exporte
@@ -139,6 +139,22 @@ Une page de résultats par recherche suffit : au-delà, PagesJaunes élargit le
 rayon et renvoie des entreprises hors de la région visée. Le script écarte
 aussi les fiches sans téléphone, sans adresse ou sans code postal, et les
 doublons de numéro (une même entreprise listée sous plusieurs rubriques).
+
+## Couverture actuelle
+
+La base `data/regions.db` a été remplie en trois passes, 8 rubriques au total
+(plomberie, électriciens, entrepreneurs généraux, couvreurs, excavation,
+nettoyage résidentiel/commercial/industriel, conciergerie, paysagistes) :
+
+1. **18 villes régionales**, 5 rubriques de construction.
+2. Les mêmes villes, **nettoyage et paysagement** ajoutés.
+3. **Tout le Québec** : 52 villes couvrant les 17 régions administratives,
+   du Bas-Saint-Laurent aux Îles-de-la-Madeleine, plus les 14 régions
+   métropolitaines (2 pages par recherche pour celles-ci, l'élargissement du
+   rayon restant dans le même bassin urbain).
+
+Soit 84 points de recherche. Les municipalités voisines ramenées par
+PagesJaunes s'ajoutent d'elles-mêmes au bassin.
 
 ## Ajouter des fiches au carnet en ligne
 
@@ -152,20 +168,25 @@ python scripts/preparer_carnet.py \
     --deja-dans-le-carnet carnet_actuel/leads
 ```
 
-Groupes disponibles : `construction`, `electriciens`, `nettoyage`,
-`paysagement` — chacun regroupe les rubriques que PagesJaunes renvoie
-réellement pour cette industrie (« Nettoyage résidentiel, commercial et
-industriel » et « Service de conciergerie » pour le nettoyage, par exemple).
+Un groupe par rubrique pour doser chaque métier — `plomberie`,
+`electriciens`, `generaux`, `couvreurs`, `excavation`, `nettoyage_ci`,
+`conciergerie`, `paysagement` — plus deux groupes composites, `construction`
+et `nettoyage`, quand la rubrique exacte importe peu.
+
+Options : `--inclure-metropoles` garde Montréal, Québec, Gatineau et les
+autres bassins urbains (écartés par défaut) ; `--statut` fixe le statut
+initial des fiches produites.
 
 Deux garde-fous importants :
 
 - `--deja-dans-le-carnet` prend un dossier de fiches exportées du carnet et
   les exclut, **par identifiant et par numéro de téléphone**. Sans ça, une
   entreprise listée sous deux rubriques serait ajoutée deux fois.
-- La sélection remplit d'abord les 19 villes visées, puis déborde sur les
-  municipalités voisines. Sans cette priorité, une rubrique présente dans
-  60 villages remplirait le quota à raison d'une fiche par village — et il
-  devient impossible d'enchaîner les appels par territoire.
+- La sélection remplit d'abord les villes où les recherches ont été lancées
+  (`VILLES_VISEES`), puis déborde sur les municipalités voisines. Sans cette
+  priorité, une rubrique présente dans des centaines de villages remplirait
+  le quota à raison d'une fiche par village — et il devient impossible
+  d'enchaîner les appels par territoire.
 
 Les fiches produites s'ajoutent au carnet sans jamais toucher aux fiches
 existantes : seuls des documents aux nouveaux identifiants sont écrits, donc
