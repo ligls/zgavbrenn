@@ -115,11 +115,14 @@ Les deux commandes ci-dessus demandent un terminal. Si tu n'en as pas, le
 carnet d'appels vit sur le web à la place : les fiches et les notes sont
 stockées côté serveur et s'ouvrent depuis n'importe quel navigateur.
 
-- **Carnet d'appels chantiers** — https://claude.ai/code/artifact/aea59a3f-49a6-429f-a6d0-9c96ea273016
-  150 entrepreneurs en construction de 19 villes régionales. Statuts, notes
-  d'appel, dates de rappel et export CSV, sans rien installer.
-- Pour ajouter des fiches ou changer de secteur, il faut relancer une
-  extraction : c'est ce que fait `scripts/prospection_regions.py`.
+- **Carnet de prospection régionale** — https://claude.ai/code/artifact/aea59a3f-49a6-429f-a6d0-9c96ea273016
+  300 entreprises de 19 villes régionales, réparties en 8 rubriques :
+  construction (plomberie, électricité, entrepreneurs généraux, couvreurs,
+  excavation), nettoyage commercial et conciergerie, paysagement. Statuts,
+  notes d'appel, dates de rappel et export CSV, sans rien installer.
+- Pour ajouter des fiches ou une industrie, il faut relancer une extraction
+  puis préparer les fiches : `scripts/prospection_regions.py` et
+  `scripts/preparer_carnet.py`.
 
 ## Extraction ciblée : villes régionales
 
@@ -136,6 +139,37 @@ Une page de résultats par recherche suffit : au-delà, PagesJaunes élargit le
 rayon et renvoie des entreprises hors de la région visée. Le script écarte
 aussi les fiches sans téléphone, sans adresse ou sans code postal, et les
 doublons de numéro (une même entreprise listée sous plusieurs rubriques).
+
+## Ajouter des fiches au carnet en ligne
+
+`scripts/preparer_carnet.py` choisit dans la base les fiches à verser dans le
+carnet et les écrit au format attendu par son magasin, un fichier JSON par
+fiche plus un manifeste de lots de 50 :
+
+```bash
+python scripts/preparer_carnet.py \
+    --groupe nettoyage=50 --groupe paysagement=50 --groupe electriciens=50 \
+    --deja-dans-le-carnet carnet_actuel/leads
+```
+
+Groupes disponibles : `construction`, `electriciens`, `nettoyage`,
+`paysagement` — chacun regroupe les rubriques que PagesJaunes renvoie
+réellement pour cette industrie (« Nettoyage résidentiel, commercial et
+industriel » et « Service de conciergerie » pour le nettoyage, par exemple).
+
+Deux garde-fous importants :
+
+- `--deja-dans-le-carnet` prend un dossier de fiches exportées du carnet et
+  les exclut, **par identifiant et par numéro de téléphone**. Sans ça, une
+  entreprise listée sous deux rubriques serait ajoutée deux fois.
+- La sélection remplit d'abord les 19 villes visées, puis déborde sur les
+  municipalités voisines. Sans cette priorité, une rubrique présente dans
+  60 villages remplirait le quota à raison d'une fiche par village — et il
+  devient impossible d'enchaîner les appels par territoire.
+
+Les fiches produites s'ajoutent au carnet sans jamais toucher aux fiches
+existantes : seuls des documents aux nouveaux identifiants sont écrits, donc
+les statuts et les notes déjà saisis restent intacts.
 
 ## Structure
 
