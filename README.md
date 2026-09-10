@@ -115,11 +115,14 @@ Les deux commandes ci-dessus demandent un terminal. Si tu n'en as pas, le
 carnet d'appels vit sur le web à la place : les fiches et les notes sont
 stockées côté serveur et s'ouvrent depuis n'importe quel navigateur.
 
-- **Carnet de prospection régionale** — https://claude.ai/code/artifact/aea59a3f-49a6-429f-a6d0-9c96ea273016
-  300 entreprises de 19 villes régionales, réparties en 8 rubriques :
-  construction (plomberie, électricité, entrepreneurs généraux, couvreurs,
-  excavation), nettoyage commercial et conciergerie, paysagement. Statuts,
+- **Carnet de prospection Québec** — https://claude.ai/code/artifact/aea59a3f-49a6-429f-a6d0-9c96ea273016
+  1496 entreprises dans 82 municipalités des 17 régions administratives,
+  métropoles incluses, et exactement 187 fiches par rubrique : plomberie,
+  électriciens, entrepreneurs généraux, couvreurs, excavation, nettoyage
+  résidentiel/commercial/industriel, conciergerie, paysagistes. Statuts,
   notes d'appel, dates de rappel et export CSV, sans rien installer.
+  L'affichage est plafonné à 400 rangées extensibles : au-delà, redessiner
+  la liste à chaque note enregistrée rame sur un portable modeste.
 - Pour ajouter des fiches ou une industrie, il faut relancer une extraction
   puis préparer les fiches : `scripts/prospection_regions.py` et
   `scripts/preparer_carnet.py`.
@@ -153,8 +156,9 @@ nettoyage résidentiel/commercial/industriel, conciergerie, paysagistes) :
    métropolitaines (2 pages par recherche pour celles-ci, l'élargissement du
    rayon restant dans le même bassin urbain).
 
-Soit 84 points de recherche. Les municipalités voisines ramenées par
-PagesJaunes s'ajoutent d'elles-mêmes au bassin.
+Soit 84 points de recherche, et **13 331 entreprises uniques** en base. Les
+municipalités voisines ramenées par PagesJaunes s'ajoutent d'elles-mêmes au
+bassin — d'où les 82 municipalités du carnet pour 84 points de recherche.
 
 ## Ajouter des fiches au carnet en ligne
 
