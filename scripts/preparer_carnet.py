@@ -83,6 +83,16 @@ GROUPES = {
         "Couvreurs",
         "Entrepreneurs en excavation",
     ],
+    "massotherapie": [
+        "Massothérapeutes",
+        "Massages et traitements alternatifs",
+    ],
+    # L'esthétique automobile, pas les lave-autos : « Lave-autos » regroupe
+    # surtout des tunnels automatiques, un tout autre commerce.
+    "detailing": [
+        "Entretien intérieur et extérieur d'auto",
+        "Nettoyage intérieur d'auto",
+    ],
     "nettoyage": [
         "Nettoyage résidentiel, commercial et industriel",
         "Service de conciergerie",

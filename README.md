@@ -116,10 +116,11 @@ carnet d'appels vit sur le web à la place : les fiches et les notes sont
 stockées côté serveur et s'ouvrent depuis n'importe quel navigateur.
 
 - **Carnet de prospection Québec** — https://claude.ai/code/artifact/aea59a3f-49a6-429f-a6d0-9c96ea273016
-  1496 entreprises dans 82 municipalités des 17 régions administratives,
-  métropoles incluses, et exactement 187 fiches par rubrique : plomberie,
-  électriciens, entrepreneurs généraux, couvreurs, excavation, nettoyage
-  résidentiel/commercial/industriel, conciergerie, paysagistes. Statuts,
+  1870 entreprises dans 152 municipalités des 17 régions administratives,
+  métropoles incluses, et 187 fiches par métier : plomberie, électriciens,
+  entrepreneurs généraux, couvreurs, excavation, nettoyage
+  résidentiel/commercial/industriel, conciergerie, paysagistes,
+  massothérapeutes, esthétique automobile. Statuts,
   notes d'appel, dates de rappel et export CSV, sans rien installer.
   L'affichage est plafonné à 400 rangées extensibles : au-delà, redessiner
   la liste à chaque note enregistrée rame sur un portable modeste.
@@ -145,9 +146,10 @@ doublons de numéro (une même entreprise listée sous plusieurs rubriques).
 
 ## Couverture actuelle
 
-La base `data/regions.db` a été remplie en trois passes, 8 rubriques au total
+La base `data/regions.db` a été remplie en quatre passes, 10 rubriques au total
 (plomberie, électriciens, entrepreneurs généraux, couvreurs, excavation,
-nettoyage résidentiel/commercial/industriel, conciergerie, paysagistes) :
+nettoyage résidentiel/commercial/industriel, conciergerie, paysagistes,
+massothérapeutes, entretien intérieur et extérieur d'auto) :
 
 1. **18 villes régionales**, 5 rubriques de construction.
 2. Les mêmes villes, **nettoyage et paysagement** ajoutés.
@@ -155,10 +157,11 @@ nettoyage résidentiel/commercial/industriel, conciergerie, paysagistes) :
    du Bas-Saint-Laurent aux Îles-de-la-Madeleine, plus les 14 régions
    métropolitaines (2 pages par recherche pour celles-ci, l'élargissement du
    rayon restant dans le même bassin urbain).
+4. **Massothérapie et esthétique automobile** sur les mêmes 84 points.
 
-Soit 84 points de recherche, et **13 331 entreprises uniques** en base. Les
+Soit 84 points de recherche, et **15 808 entreprises uniques** en base. Les
 municipalités voisines ramenées par PagesJaunes s'ajoutent d'elles-mêmes au
-bassin — d'où les 82 municipalités du carnet pour 84 points de recherche.
+bassin — d'où les 152 municipalités du carnet pour 84 points de recherche.
 
 ## Ajouter des fiches au carnet en ligne
 
@@ -174,8 +177,13 @@ python scripts/preparer_carnet.py \
 
 Un groupe par rubrique pour doser chaque métier — `plomberie`,
 `electriciens`, `generaux`, `couvreurs`, `excavation`, `nettoyage_ci`,
-`conciergerie`, `paysagement` — plus deux groupes composites, `construction`
-et `nettoyage`, quand la rubrique exacte importe peu.
+`conciergerie`, `paysagement`, `massotherapie`, `detailing` — plus deux
+groupes composites, `construction` et `nettoyage`, quand la rubrique exacte
+importe peu.
+
+`detailing` vise « Entretien intérieur et extérieur d'auto », pas
+« Lave-autos » : cette dernière rubrique regroupe surtout des tunnels de
+lavage automatiques, un tout autre commerce.
 
 Options : `--inclure-metropoles` garde Montréal, Québec, Gatineau et les
 autres bassins urbains (écartés par défaut) ; `--statut` fixe le statut
