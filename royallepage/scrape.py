@@ -57,6 +57,21 @@ def save_completed(prov: str, completed: set[str]) -> None:
     _completed_path(prov).write_text(json.dumps(sorted(completed), indent=2))
 
 
+def _city_totals_path(prov: str) -> Path:
+    return DATA_DIR / f"city_totals_{prov}.json"
+
+
+def load_city_totals(prov: str) -> dict[str, int]:
+    path = _city_totals_path(prov)
+    if path.exists():
+        return json.loads(path.read_text())
+    return {}
+
+
+def save_city_totals(prov: str, totals: dict[str, int]) -> None:
+    _city_totals_path(prov).write_text(json.dumps(totals, indent=2, ensure_ascii=False))
+
+
 def open_csv_writer(prov: str):
     path = csv_path(prov)
     is_new = not path.exists() or path.stat().st_size == 0
@@ -99,6 +114,7 @@ def scrape_province(prov: str, cities: list[dict], session: PoliteSession, log=p
     province_name = PROVINCES[prov]
     seen_ids = load_seen_ids(prov)
     completed = load_completed(prov)
+    city_totals = load_city_totals(prov)
     f, writer = open_csv_writer(prov)
     try:
         for idx, city in enumerate(cities, 1):
@@ -133,6 +149,8 @@ def scrape_province(prov: str, cities: list[dict], session: PoliteSession, log=p
 
             completed.add(slug)
             save_completed(prov, completed)
+            city_totals[name] = len(city_agents)
+            save_city_totals(prov, city_totals)
             log(
                 f"Scraped {len(city_agents)} agents in {name}, {province_name} "
                 f"(city {idx}/{len(cities)}) — {new_count} new, {len(city_agents) - new_count} already had"

@@ -17,7 +17,7 @@ from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
 from royallepage.rank_cities import DATA_DIR, PROVINCES
-from royallepage.scrape import csv_path
+from royallepage.scrape import csv_path, load_city_totals
 
 COLUMNS = [
     ("full_name", "Full Name"),
@@ -77,24 +77,33 @@ def build(output_path: Path = OUTPUT_PATH) -> Path:
     ws_all = wb.create_sheet(title="All", index=0)
     _write_sheet(ws_all, all_rows)
 
+    # Royal LePage cross-lists agents under "neighbouring" cities they also
+    # service, so a satellite town near a big hub (e.g. Morinville near
+    # Edmonton) has most of its listed agents already counted -- and given
+    # their one CSV row -- under that hub instead. "Unique agents" is what's
+    # actually in this workbook for the city; "Listed for this city" is what
+    # Royal LePage's own city page shows, before that cross-city dedup.
     ws_summary = wb.create_sheet(title="Summary")
-    ws_summary.cell(row=1, column=1, value="Province").font = Font(bold=True)
-    ws_summary.cell(row=1, column=2, value="City").font = Font(bold=True)
-    ws_summary.cell(row=1, column=3, value="Agent Count").font = Font(bold=True)
+    headers = ["Province", "City", "Unique Agents (rows in this workbook)", "Listed for This City (before cross-city dedup)"]
+    for col_idx, header in enumerate(headers, 1):
+        ws_summary.cell(row=1, column=col_idx, value=header).font = Font(bold=True)
     row_idx = 2
     for prov, name in PROVINCES.items():
-        counts = Counter(r["city"] for r in per_province[prov])
-        for city, count in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])):
+        unique_counts = Counter(r["city"] for r in per_province[prov])
+        listed_totals = load_city_totals(prov) or dict(unique_counts)
+        cities = sorted(listed_totals, key=lambda c: (-listed_totals[c], c))
+        for city in cities:
             ws_summary.cell(row=row_idx, column=1, value=name)
             ws_summary.cell(row=row_idx, column=2, value=city)
-            ws_summary.cell(row=row_idx, column=3, value=count)
+            ws_summary.cell(row=row_idx, column=3, value=unique_counts.get(city, 0))
+            ws_summary.cell(row=row_idx, column=4, value=listed_totals[city])
             row_idx += 1
         ws_summary.cell(row=row_idx, column=1, value=f"{name} total").font = Font(bold=True)
-        ws_summary.cell(row=row_idx, column=3, value=sum(counts.values())).font = Font(bold=True)
+        ws_summary.cell(row=row_idx, column=3, value=sum(unique_counts.values())).font = Font(bold=True)
         row_idx += 1
     ws_summary.cell(row=row_idx, column=1, value="Grand total").font = Font(bold=True)
     ws_summary.cell(row=row_idx, column=3, value=len(all_rows)).font = Font(bold=True)
-    for col_idx, width in enumerate([14, 22, 12], 1):
+    for col_idx, width in enumerate([14, 22, 30, 40], 1):
         ws_summary.column_dimensions[get_column_letter(col_idx)].width = width
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
