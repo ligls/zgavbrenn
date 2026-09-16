@@ -30,7 +30,7 @@ FIELDNAMES = [
 ]
 
 
-def _csv_path(prov: str) -> Path:
+def csv_path(prov: str) -> Path:
     return DATA_DIR / f"agents_{prov}.csv"
 
 
@@ -39,7 +39,7 @@ def _completed_path(prov: str) -> Path:
 
 
 def load_seen_ids(prov: str) -> set[str]:
-    path = _csv_path(prov)
+    path = csv_path(prov)
     if not path.exists():
         return set()
     with path.open(newline="", encoding="utf-8") as f:
@@ -58,7 +58,7 @@ def save_completed(prov: str, completed: set[str]) -> None:
 
 
 def open_csv_writer(prov: str):
-    path = _csv_path(prov)
+    path = csv_path(prov)
     is_new = not path.exists() or path.stat().st_size == 0
     f = path.open("a", newline="", encoding="utf-8")
     writer = csv.DictWriter(f, fieldnames=FIELDNAMES)
