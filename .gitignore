@@ -3,6 +3,7 @@ data/
 *.db
 *.db-journal
 *.csv
+*.xlsx
 
 __pycache__/
 *.py[cod]

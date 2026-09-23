@@ -127,6 +127,7 @@ stockées côté serveur et s'ouvrent depuis n'importe quel navigateur.
 - Pour ajouter des fiches ou une industrie, il faut relancer une extraction
   puis préparer les fiches : `scripts/prospection_regions.py` et
   `scripts/preparer_carnet.py`.
+- Pour un classeur Excel du carnet : `scripts/carnet_vers_excel.py` (plus bas).
 
 ## Extraction ciblée : villes régionales
 
@@ -204,6 +205,36 @@ Les fiches produites s'ajoutent au carnet sans jamais toucher aux fiches
 existantes : seuls des documents aux nouveaux identifiants sont écrits, donc
 les statuts et les notes déjà saisis restent intacts.
 
+## Sortir le carnet en classeur Excel
+
+`scripts/carnet_vers_excel.py` prend les fiches JSON lues dans le magasin du
+carnet et produit un `.xlsx` à quatre feuilles :
+
+```bash
+python scripts/carnet_vers_excel.py \
+    --fiches carnet_actuel/leads --sortie leads-carnet-quebec.xlsx
+```
+
+- **Sommaire** — volume, avancement des appels, répartition par métier et par
+  municipalité. Tout est en **formules** sur la feuille Leads, jamais en dur :
+  le sommaire suit les modifications faites dans le classeur.
+- **Leads** — une ligne par entreprise, rangée figée, filtres actifs, liste
+  déroulante sur la colonne Statut (le sommaire compte des libellés exacts,
+  une faute de frappe le ferait mentir) et surlignage des fiches déjà
+  travaillées.
+- **Appels** — une ligne par appel noté, du plus récent au plus ancien.
+- **Guide** — ce qui vient de PagesJaunes, ce qui se remplit à la main, et le
+  vocabulaire des statuts et des résultats d'appel.
+
+Le classeur reprend le vocabulaire de statuts de **la page du carnet**
+(`à appeler`, `à rappeler`, `injoignable`, `intéressé`, `pas intéressé`,
+`client`), plus court que celui de `pj/db.py` : c'est le carnet qui a écrit
+ces valeurs.
+
+C'est une photo, pas une synchronisation : ce qui est saisi dans le classeur
+ne remonte pas dans le carnet, et l'inverse non plus. Le carnet reste la
+source vivante.
+
 ## Structure
 
 ```
@@ -215,6 +246,13 @@ pj/
 ├── rubriques.py   rubriques et villes du Québec suggérées
 ├── templates/     liste, fiche, scraping
 └── static/
+scripts/
+├── prospection_regions.py  extraction ciblée + export CSV
+├── preparer_carnet.py      choix des fiches à verser au carnet en ligne
+└── carnet_vers_excel.py    carnet -> classeur Excel
+carnet/
+├── carnet.html    source de la page du carnet en ligne
+└── README.md      format des documents du magasin
 tests/
 ├── test_pj.py     12 tests (parseur + stockage)
 └── fixtures/      extrait réel d'une page de résultats
