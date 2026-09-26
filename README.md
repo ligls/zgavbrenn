@@ -159,10 +159,24 @@ massothérapeutes, entretien intérieur et extérieur d'auto) :
    métropolitaines (2 pages par recherche pour celles-ci, l'élargissement du
    rayon restant dans le même bassin urbain).
 4. **Massothérapie et esthétique automobile** sur les mêmes 84 points.
+5. **Vague large** (`scripts/prospection_canada.py`) : 24 rubriques de plus
+   sur les 85 points québécois, et les 34 rubriques dans 23 villes du
+   Nouveau-Brunswick, 40 de l'Ontario et 40 de la Colombie-Britannique.
 
-Soit 84 points de recherche, et **15 808 entreprises uniques** en base. Les
+Après la cinquième vague, les bases contiennent :
+
+| Base | Recherches | Entreprises uniques | Fiches appelables* |
+| --- | --- | --- | --- |
+| `data/regions.db` (Québec) | 2 040 | 50 350 | 36 458 hors carnet |
+| `data/on.db` (Ontario) | 1 360 | 40 643 | 30 489 |
+| `data/bc.db` (Colombie-Britannique) | 1 360 | 29 009 | 21 309 |
+| `data/nb.db` (Nouveau-Brunswick) | 782 | 10 253 | 6 398 |
+
+\* téléphone, adresse et code postal présents, une fiche par numéro. Les
 municipalités voisines ramenées par PagesJaunes s'ajoutent d'elles-mêmes au
-bassin — d'où les 152 municipalités du carnet pour 84 points de recherche.
+bassin — d'où 1 925 municipalités québécoises pour 85 points de recherche.
+Sur ~5 500 requêtes, PagesJaunes a rendu 23 erreurs 502/504, toutes
+récupérées par une relance grâce à la table `recherches`.
 
 ## Ajouter des fiches au carnet en ligne
 
@@ -280,9 +294,17 @@ python scripts/prospection_canada.py --province NB --province BC
 ```
 
 Chaque province a sa base (`data/regions.db` pour le Québec, `data/on.db`,
-`data/nb.db`, `data/bc.db`). Une paire ville x rubrique déjà en base est
-sautée, donc le script reprend où il s'est arrêté. `--seulement regionales`
-ou `--seulement metropoles` répartit une province sur deux flux.
+`data/nb.db`, `data/bc.db`). Chaque recherche terminée est consignée dans
+une table `recherches` de cette base ; une paire ville x rubrique déjà
+consignée est sautée, donc le script reprend où il s'est arrêté et une
+relance ne refait que les recherches tombées en erreur (PagesJaunes rend
+quelques 502/504 par millier de requêtes). `--seulement regionales` ou
+`--seulement metropoles` répartit une province sur deux flux.
+
+Les colonnes `recherche_industrie` / `recherche_ville` des fiches ne
+suffisent pas à cette reprise : une fiche ramenée par plusieurs recherches ne
+garde que la dernière, et les banlieues d'une métropole finissent sans aucune
+fiche à leur nom — d'où la table dédiée.
 
 Les rubriques sont envoyées **en français même hors Québec** : pagesjaunes.ca
 et yellowpages.ca partagent les données, et le site renvoie les catégories

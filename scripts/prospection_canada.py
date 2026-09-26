@@ -10,8 +10,15 @@ Nouveau-Brunswick, de l'Ontario et de la Colombie-Britannique.
     python scripts/prospection_canada.py --province NB --province BC
 
 Chaque province a sa base (data/regions.db pour le Québec, data/<prov>.db
-ailleurs). Une paire ville x rubrique déjà présente dans la base est sautée,
-donc le script reprend là où il s'est arrêté après une interruption.
+ailleurs). Chaque recherche terminée est consignée dans une table
+`recherches` de cette base, et une paire ville x rubrique déjà consignée est
+sautée : le script reprend là où il s'est arrêté après une interruption, et
+une reprise ne refait que les recherches en erreur.
+
+(Les colonnes recherche_industrie / recherche_ville des fiches ne suffisent
+pas à ça : une fiche ramenée par plusieurs recherches ne garde que la
+dernière, et les banlieues d'une métropole finissent sans aucune fiche à
+leur nom.)
 
 Les rubriques sont envoyées en français même hors Québec : pagesjaunes.ca
 et yellowpages.ca partagent les mêmes données, et le site renvoie les
@@ -158,12 +165,34 @@ PROVINCES = {
 }
 
 
+SCHEMA_RECHERCHES = """
+CREATE TABLE IF NOT EXISTS recherches (
+    industrie TEXT NOT NULL,
+    ville     TEXT NOT NULL,
+    pages     INTEGER NOT NULL DEFAULT 1,
+    fiches    INTEGER NOT NULL DEFAULT 0,
+    faite_le  TEXT NOT NULL,
+    PRIMARY KEY (industrie, ville)
+)
+"""
+
+
 def deja_faites(conn) -> set[tuple[str, str]]:
-    """Paires (recherche_industrie, recherche_ville) déjà en base."""
-    return set(conn.execute(
-        "SELECT DISTINCT recherche_industrie, recherche_ville FROM entreprises "
-        "WHERE recherche_industrie IS NOT NULL AND recherche_ville IS NOT NULL"
-    ).fetchall())
+    """Paires (industrie, ville) consignées comme terminées."""
+    conn.execute(SCHEMA_RECHERCHES)
+    conn.commit()
+    # tuple(...) obligatoire : la connexion rend des sqlite3.Row, qui ne sont
+    # jamais égaux à un tuple — `(rubrique, ou) in faites` serait toujours faux.
+    return {tuple(r) for r in conn.execute("SELECT industrie, ville FROM recherches")}
+
+
+def consigner(conn, industrie: str, ville: str, pages: int, fiches: int) -> None:
+    conn.execute(
+        "INSERT OR REPLACE INTO recherches (industrie, ville, pages, fiches, faite_le) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (industrie, ville, pages, fiches, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())),
+    )
+    conn.commit()
 
 
 def extraire(province: str, rubriques: list[str], delai: float,
@@ -193,6 +222,7 @@ def extraire(province: str, rubriques: list[str], delai: float,
                 for fiche in session.rechercher(rubrique, ou, pages_max=pages):
                     db.enregistrer(conn, fiche)
                     trouvees += 1
+                consigner(conn, rubrique, ou, pages, trouvees)
                 total += trouvees
                 print(f"[{province}] {ou:<28} {rubrique:<46} {trouvees:>3}",
                       file=journal, flush=True)
