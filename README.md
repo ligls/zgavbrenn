@@ -208,21 +208,26 @@ les statuts et les notes déjà saisis restent intacts.
 ## Sortir le carnet en classeur Excel
 
 `scripts/carnet_vers_excel.py` prend les fiches JSON lues dans le magasin du
-carnet et produit un `.xlsx` à quatre feuilles :
+carnet et produit un `.xlsx` à six feuilles :
 
 ```bash
 python scripts/carnet_vers_excel.py \
     --fiches carnet_actuel/leads --sortie leads-carnet-quebec.xlsx
 ```
 
-- **Sommaire** — volume, avancement des appels, répartition par métier et par
-  municipalité. Tout est en **formules** sur la feuille Leads, jamais en dur :
-  le sommaire suit les modifications faites dans le classeur.
+- **Sommaire** — volume et avancement des appels. Tout est en **formules**
+  sur la feuille Leads, jamais en dur : le sommaire suit les modifications
+  faites dans le classeur.
 - **Leads** — une ligne par entreprise, rangée figée, filtres actifs, liste
   déroulante sur la colonne Statut (le sommaire compte des libellés exacts,
   une faute de frappe le ferait mentir) et surlignage des fiches déjà
   travaillées.
 - **Appels** — une ligne par appel noté, du plus récent au plus ancien.
+- **Villes** et **Métiers** — le nombre de fiches par municipalité et par
+  rubrique, par formule, du plus fourni au moins fourni. Les comptes distincts
+  du Sommaire se lisent sur ces feuilles plutôt que par
+  `SUMPRODUCT(1/COUNTIF(...))`, quadratique : sur 30 000 rangées, Excel
+  mettrait des minutes.
 - **Guide** — ce qui vient de PagesJaunes, ce qui se remplit à la main, et le
   vocabulaire des statuts et des résultats d'appel.
 
@@ -234,6 +239,55 @@ ces valeurs.
 C'est une photo, pas une synchronisation : ce qui est saisi dans le classeur
 ne remonte pas dans le carnet, et l'inverse non plus. Le carnet reste la
 source vivante.
+
+## Sortir une base scrapée en classeur Excel
+
+`scripts/base_vers_excel.py` produit le même classeur (sans la feuille
+Appels) à partir d'une ou plusieurs bases SQLite, pour une province :
+
+```bash
+# le Québec, sans les fiches déjà dans le carnet en ligne
+python scripts/base_vers_excel.py --base data/regions.db --province QC \
+    --exclure carnet_actuel/leads --sortie leads-quebec-nouveaux.xlsx
+
+# l'Ontario, en récupérant aussi les fiches ontariennes ramenées par les
+# recherches lancées au Québec (Gatineau ramène Ottawa)
+python scripts/base_vers_excel.py --base data/on.db --base data/regions.db \
+    --province ON --sortie leads-ontario.xlsx
+```
+
+Mêmes garde-fous que `preparer_carnet.py` : téléphone, adresse et code
+postal obligatoires, une fiche par numéro, exclusion du carnet par
+identifiant et par numéro. La province se lit sur la fiche ; quand PagesJaunes
+ne la donne pas, la première lettre du code postal tranche (G, H, J pour le
+Québec, E pour le Nouveau-Brunswick, V pour la Colombie-Britannique, K à P
+pour l'Ontario).
+
+## Extraction large : toutes les rubriques, hors Québec aussi
+
+`scripts/prospection_canada.py` est la deuxième vague : 24 rubriques de plus
+(chauffage, climatisation, peinture, ébénistes, portes et fenêtres, garages,
+carrosseries, pneus, restaurants, traiteurs, boulangeries, dentistes,
+physiothérapeutes, chiropraticiens, optométristes, vétérinaires, cliniques
+médicales, comptables, avocats, courtiers immobiliers, assurances, salons de
+coiffure, garderies, quincailleries), au Québec et dans les villes du
+Nouveau-Brunswick, de l'Ontario et de la Colombie-Britannique.
+
+```bash
+python scripts/prospection_canada.py --province QC --rubriques nouvelles
+python scripts/prospection_canada.py --province ON        # les 34 rubriques
+python scripts/prospection_canada.py --province NB --province BC
+```
+
+Chaque province a sa base (`data/regions.db` pour le Québec, `data/on.db`,
+`data/nb.db`, `data/bc.db`). Une paire ville x rubrique déjà en base est
+sautée, donc le script reprend où il s'est arrêté. `--seulement regionales`
+ou `--seulement metropoles` répartit une province sur deux flux.
+
+Les rubriques sont envoyées **en français même hors Québec** : pagesjaunes.ca
+et yellowpages.ca partagent les données, et le site renvoie les catégories
+dans la langue de l'interface. Les bases restent homogènes, et le même
+classeur sert partout.
 
 ## Structure
 
@@ -248,8 +302,10 @@ pj/
 └── static/
 scripts/
 ├── prospection_regions.py  extraction ciblée + export CSV
+├── prospection_canada.py   extraction large : 34 rubriques, QC / NB / ON / BC
 ├── preparer_carnet.py      choix des fiches à verser au carnet en ligne
-└── carnet_vers_excel.py    carnet -> classeur Excel
+├── carnet_vers_excel.py    carnet -> classeur Excel
+└── base_vers_excel.py      base scrapée -> classeur Excel, par province
 carnet/
 ├── carnet.html    source de la page du carnet en ligne
 └── README.md      format des documents du magasin

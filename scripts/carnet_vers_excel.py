@@ -3,8 +3,9 @@
 
 Prend un ou plusieurs dossiers de fiches JSON exportées du magasin du carnet
 (un fichier par fiche, nommé d'après l'identifiant PagesJaunes) et produit un
-.xlsx à quatre feuilles : les leads, le journal des appels notés, un sommaire
-calculé par formules, et un guide des colonnes.
+.xlsx à six feuilles : sommaire calculé par formules, leads, journal des
+appels notés, fiches par municipalité, fiches par métier, et guide des
+colonnes.
 
     python scripts/carnet_vers_excel.py --fiches export/leads \
         --sortie leads-carnet-quebec.xlsx
@@ -12,6 +13,9 @@ calculé par formules, et un guide des colonnes.
 Le carnet en ligne reste la source vivante : ce classeur est une photo. Les
 colonnes que tu remplis à la main (statut, rappel, contact, courriel) y sont
 reprises telles quelles, pas recalculées.
+
+`construire_classeur()` est aussi utilisé par `base_vers_excel.py` pour sortir
+les fiches d'une base scrapée dans exactement le même format.
 """
 
 from __future__ import annotations
@@ -55,8 +59,7 @@ COLONNES = [
     (12, "Appels notés"), (44, "Dernière note"), (44, "Fiche PagesJaunes"),
 ]
 COL_STATUT = 10
-COL_METIER = 4
-COL_VILLE = 6
+COL_RAPPEL = 11
 COL_APPELS = 14
 
 POLICE = "Arial"
@@ -76,8 +79,13 @@ def charger(dossiers: list[Path]) -> list[tuple[str, dict]]:
                 fiches[chemin.stem] = json.loads(chemin.read_text(encoding="utf-8"))
             except ValueError as exc:
                 raise SystemExit(f"{chemin} : JSON illisible ({exc})")
+    return trier(list(fiches.items()))
+
+
+def trier(fiches: list[tuple[str, dict]]) -> list[tuple[str, dict]]:
+    """Par ville, métier puis nom : l'ordre dans lequel on enchaîne les appels."""
     return sorted(
-        fiches.items(),
+        fiches,
         key=lambda paire: (
             (paire[1].get("ville") or "").lower(),
             (paire[1].get("secteur") or "").lower(),
@@ -108,6 +116,13 @@ def jour(valeur) -> datetime | str:
         return texte
 
 
+def critere(texte: str) -> str:
+    """Un libellé prêt pour COUNTIF : `*`, `?` et `~` y sont des jokers."""
+    for joker in ("~", "*", "?"):
+        texte = texte.replace(joker, "~" + joker)
+    return texte.replace('"', '""')
+
+
 def ligne_lead(fiche: dict) -> list:
     notes = [n for n in (fiche.get("notes") or []) if isinstance(n, dict)]
     tels = [t for t in (fiche.get("tels") or []) if t]
@@ -125,7 +140,7 @@ def ligne_lead(fiche: dict) -> list:
         fiche.get("secteur") or "",
         fiche.get("adresse") or "",
         fiche.get("ville") or "",
-        fiche.get("province") or "QC",
+        fiche.get("province") or "",
         fiche.get("cp") or "",
         fiche.get("web") or "",
         STATUTS.get(fiche.get("statut") or "a_appeler", fiche.get("statut") or ""),
@@ -138,12 +153,13 @@ def ligne_lead(fiche: dict) -> list:
     ]
 
 
-def entete(feuille, libelles: list[str]) -> None:
-    for index, libelle in enumerate(libelles, start=1):
+def entete(feuille, colonnes: list[tuple[int, str]]) -> None:
+    for index, (largeur, libelle) in enumerate(colonnes, start=1):
         cellule = feuille.cell(row=1, column=index, value=libelle)
         cellule.font = Font(name=POLICE, bold=True, color="FFFFFF", size=11)
         cellule.fill = PatternFill("solid", fgColor=ENCRE)
         cellule.alignment = Alignment(vertical="center", horizontal="left")
+        feuille.column_dimensions[get_column_letter(index)].width = largeur
     feuille.row_dimensions[1].height = 24
     feuille.freeze_panes = "A2"
 
@@ -151,24 +167,29 @@ def entete(feuille, libelles: list[str]) -> None:
 def feuille_leads(classeur: Workbook, fiches: list[tuple[str, dict]]):
     feuille = classeur.active
     feuille.title = "Leads"
-    entete(feuille, [libelle for _, libelle in COLONNES])
-    for index, (largeur, _) in enumerate(COLONNES, start=1):
-        feuille.column_dimensions[get_column_letter(index)].width = largeur
+    entete(feuille, COLONNES)
+
+    # Un objet de style par usage, pas par cellule : sur 30 000 rangées, la
+    # différence se compte en dizaines de secondes et en mégaoctets.
+    police = Font(name=POLICE, size=10)
+    police_forte = Font(name=POLICE, size=10, bold=True)
+    bordure = Border(bottom=TRAIT)
+    haut = Alignment(vertical="top")
+    centre = Alignment(vertical="top", horizontal="center")
+    surlignage = PatternFill("solid", fgColor=TRAVAILLE)
 
     for numero, (_, fiche) in enumerate(fiches, start=2):
         valeurs = ligne_lead(fiche)
         travaille = (fiche.get("statut") or "a_appeler") != "a_appeler"
         for colonne, valeur in enumerate(valeurs, start=1):
             cellule = feuille.cell(row=numero, column=colonne, value=valeur)
-            cellule.font = Font(name=POLICE, size=10)
-            cellule.border = Border(bottom=TRAIT)
-            cellule.alignment = Alignment(vertical="top")
+            cellule.font = police
+            cellule.border = bordure
+            cellule.alignment = centre if colonne == COL_APPELS else haut
             if colonne == COL_STATUT and travaille:
-                cellule.font = Font(name=POLICE, size=10, bold=True)
-                cellule.fill = PatternFill("solid", fgColor=TRAVAILLE)
-            if colonne == COL_APPELS:
-                cellule.alignment = Alignment(vertical="top", horizontal="center")
-            if colonne == 11 and isinstance(valeur, datetime):
+                cellule.font = police_forte
+                cellule.fill = surlignage
+            elif colonne == COL_RAPPEL and isinstance(valeur, datetime):
                 cellule.number_format = "yyyy-mm-dd"
 
     derniere = len(fiches) + 1
@@ -189,15 +210,12 @@ def feuille_leads(classeur: Workbook, fiches: list[tuple[str, dict]]):
     return feuille
 
 
-def feuille_appels(classeur: Workbook, fiches: list[tuple[str, dict]]):
+def feuille_appels(classeur: Workbook, fiches: list[tuple[str, dict]]) -> int:
     feuille = classeur.create_sheet("Appels")
-    colonnes = [
+    entete(feuille, [
         (22, "Date"), (38, "Entreprise"), (20, "Ville"), (15, "Téléphone"),
         (18, "Résultat"), (15, "Statut actuel"), (70, "Note"),
-    ]
-    entete(feuille, [libelle for _, libelle in colonnes])
-    for index, (largeur, _) in enumerate(colonnes, start=1):
-        feuille.column_dimensions[get_column_letter(index)].width = largeur
+    ])
 
     rangees = []
     for _, fiche in fiches:
@@ -215,11 +233,13 @@ def feuille_appels(classeur: Workbook, fiches: list[tuple[str, dict]]):
             ))
     rangees.sort(key=lambda r: (isinstance(r[0], str), str(r[0])), reverse=True)
 
+    police = Font(name=POLICE, size=10)
+    bordure = Border(bottom=TRAIT)
     for numero, rangee in enumerate(rangees, start=2):
         for colonne, valeur in enumerate(rangee, start=1):
             cellule = feuille.cell(row=numero, column=colonne, value=valeur)
-            cellule.font = Font(name=POLICE, size=10)
-            cellule.border = Border(bottom=TRAIT)
+            cellule.font = police
+            cellule.border = bordure
             cellule.alignment = Alignment(vertical="top", wrap_text=(colonne == 7))
             if colonne == 1 and isinstance(valeur, datetime):
                 cellule.number_format = "yyyy-mm-dd hh:mm"
@@ -230,10 +250,48 @@ def feuille_appels(classeur: Workbook, fiches: list[tuple[str, dict]]):
         feuille.cell(row=2, column=1, value="Aucun appel noté pour l'instant.").font = (
             Font(name=POLICE, size=10, italic=True)
         )
-    return feuille, len(rangees)
+    return len(rangees)
 
 
-def feuille_sommaire(classeur: Workbook, fiches: list[tuple[str, dict]]):
+def feuille_comptes(classeur: Workbook, fiches: list[tuple[str, dict]],
+                    nom_feuille: str, champ: str, colonne_leads: str,
+                    libelle: str) -> int:
+    """Une rangée par valeur distincte d'un champ, comptée par formule sur Leads.
+
+    Sert aux feuilles Villes (champ « ville », colonne F) et Métiers (champ
+    « secteur », colonne D). Les valeurs sont triées par nombre décroissant.
+    """
+    feuille = classeur.create_sheet(nom_feuille)
+    entete(feuille, [(38, libelle), (10, "Fiches")])
+    fin = len(fiches) + 1
+
+    compte: dict[str, int] = {}
+    for _, f in fiches:
+        valeur = f.get(champ) or ""
+        compte[valeur] = compte.get(valeur, 0) + 1
+    valeurs = sorted(compte.items(), key=lambda p: (-p[1], p[0].lower()))
+
+    police = Font(name=POLICE, size=10)
+    police_forte = Font(name=POLICE, size=10, bold=True)
+    bordure = Border(bottom=TRAIT)
+    for numero, (nom, _) in enumerate(valeurs, start=2):
+        etiquette = feuille.cell(row=numero, column=1, value=nom or f"(sans {champ})")
+        etiquette.font = police
+        etiquette.border = bordure
+        formule = feuille.cell(
+            row=numero, column=2,
+            value=f'=COUNTIF(Leads!${colonne_leads}$2:${colonne_leads}${fin},'
+                  f'"{critere(nom)}")',
+        )
+        formule.font = police_forte
+        formule.border = bordure
+        formule.alignment = Alignment(horizontal="right")
+    feuille.auto_filter.ref = f"A1:B{len(valeurs) + 1}"
+    return len(valeurs)
+
+
+def feuille_sommaire(classeur: Workbook, fiches: list[tuple[str, dict]],
+                     titre: str, nb_villes: int, nb_metiers: int):
     """Sommaire par formules : il se met à jour quand tu modifies la feuille Leads."""
     feuille = classeur.create_sheet("Sommaire", 0)
     feuille.column_dimensions["A"].width = 44
@@ -242,53 +300,33 @@ def feuille_sommaire(classeur: Workbook, fiches: list[tuple[str, dict]]):
 
     fin = len(fiches) + 1
     statut = f"Leads!$J$2:$J${fin}"
-    metier = f"Leads!$D$2:$D${fin}"
-    ville = f"Leads!$F$2:$F${fin}"
 
-    metiers = sorted({(f.get("secteur") or "") for _, f in fiches})
-    compte_villes: dict[str, int] = {}
-    for _, f in fiches:
-        nom = f.get("ville") or ""
-        compte_villes[nom] = compte_villes.get(nom, 0) + 1
-    tete = sorted(compte_villes.items(), key=lambda p: (-p[1], p[0].lower()))[:25]
-
+    # Les comptes distincts (municipalités, métiers) se lisent sur les feuilles
+    # Villes et Métiers plutôt que par SUMPRODUCT(1/COUNTIF(...)), qui est
+    # quadratique : sur 30 000 rangées, Excel mettrait des minutes.
     blocs: list = [
-        ("titre", "Carnet de prospection Québec"),
-        ("note", f"Photo du carnet en ligne, {datetime.now():%Y-%m-%d}. "
+        ("titre", titre),
+        ("note", f"Photo prise le {datetime.now():%Y-%m-%d}. "
                  "Les totaux sont des formules : ils suivent tes modifications."),
         ("vide", None),
         ("section", "Volume"),
         ("mesure", ("Fiches au total", f"=COUNTA(Leads!$A$2:$A${fin})")),
-        # Compte des valeurs distinctes : l'idiome SUMPRODUCT/COUNTIF, qui
-        # marche depuis Excel 2007. Le `&""` évite la division par zéro sur
-        # les cellules vides.
-        ("mesure", ("Municipalités",
-                    f'=SUMPRODUCT(({ville}<>"")/COUNTIF({ville},{ville}&""))')),
-        ("mesure", ("Métiers",
-                    f'=SUMPRODUCT(({metier}<>"")/COUNTIF({metier},{metier}&""))')),
+        ("mesure", ("Municipalités (feuille Villes)",
+                    f'=COUNTIF(Villes!$B$2:$B${nb_villes + 1},">0")')),
+        ("mesure", ("Métiers (feuille Métiers)",
+                    f'=COUNTIF(Métiers!$B$2:$B${nb_metiers + 1},">0")')),
         ("mesure", ("Avec site web", f"=COUNTA(Leads!$I$2:$I${fin})")),
         ("vide", None),
         ("section", "Avancement des appels"),
     ]
-    for code, libelle in STATUTS.items():
+    for libelle in STATUTS.values():
         blocs.append(("mesure", (libelle, f'=COUNTIF({statut},"{libelle}")')))
     blocs += [
         ("mesure", ("Fiches avec au moins un appel noté",
                     f'=COUNTIF(Leads!$N$2:$N${fin},">0")')),
         ("mesure", ("Appels notés au total", f"=SUM(Leads!$N$2:$N${fin})")),
         ("mesure", ("Rappels planifiés", f"=COUNTA(Leads!$K$2:$K${fin})")),
-        ("vide", None),
-        ("section", "Par métier"),
     ]
-    for nom in metiers:
-        blocs.append(("mesure", (nom or "(sans métier)",
-                                 f'=COUNTIF({metier},"{nom}")')))
-    blocs += [("vide", None), ("section", "25 municipalités les plus fournies")]
-    for nom, _ in tete:
-        blocs.append(("mesure", (nom, f'=COUNTIF({ville},"{nom}")')))
-    reste = "".join(f'-COUNTIF({ville},"{nom}")' for nom, _ in tete)
-    blocs.append(("mesure", ("Autres municipalités",
-                             f"=COUNTA(Leads!$A$2:$A${fin}){reste}")))
 
     rangee = 1
     for genre, contenu in blocs:
@@ -321,7 +359,8 @@ def feuille_sommaire(classeur: Workbook, fiches: list[tuple[str, dict]]):
     return feuille
 
 
-def feuille_guide(classeur: Workbook, nb_fiches: int, nb_appels: int):
+def feuille_guide(classeur: Workbook, nb_fiches: int, nb_appels: int,
+                  origine: str, avec_appels: bool):
     feuille = classeur.create_sheet("Guide")
     feuille.column_dimensions["A"].width = 26
     feuille.column_dimensions["B"].width = 96
@@ -329,18 +368,21 @@ def feuille_guide(classeur: Workbook, nb_fiches: int, nb_appels: int):
 
     lignes: list[tuple[str, str, str]] = [
         ("titre", "Comment lire ce classeur", ""),
-        ("texte", "", f"{nb_fiches} fiches, {nb_appels} appel(s) noté(s). "
-                      "Le carnet en ligne reste la source vivante ; ce fichier "
-                      "est une photo prise le "
-                      f"{datetime.now():%Y-%m-%d}. Ce que tu écris ici ne "
-                      "remonte pas dans le carnet, et l'inverse non plus."),
+        ("texte", "", origine),
         ("vide", "", ""),
         ("section", "Feuilles", ""),
         ("paire", "Sommaire", "Les totaux, calculés par formules sur la feuille "
                               "Leads : ils suivent tes modifications."),
-        ("paire", "Leads", "Une ligne par entreprise. Filtres actifs sur la "
-                           "rangée d'en-tête."),
-        ("paire", "Appels", "Une ligne par appel noté, du plus récent au plus ancien."),
+        ("paire", "Leads", "Une ligne par entreprise, triée par ville puis métier. "
+                           "Filtres actifs sur la rangée d'en-tête."),
+    ]
+    if avec_appels:
+        lignes.append(("paire", "Appels",
+                       "Une ligne par appel noté, du plus récent au plus ancien."))
+    lignes += [
+        ("paire", "Villes", "Le nombre de fiches par municipalité, par formule, "
+                            "de la plus fournie à la moins fournie."),
+        ("paire", "Métiers", "Le nombre de fiches par rubrique PagesJaunes, par formule."),
         ("vide", "", ""),
         ("section", "Colonnes relevées sur PagesJaunes", ""),
         ("paire", "Entreprise → Site web",
@@ -348,6 +390,8 @@ def feuille_guide(classeur: Workbook, nb_fiches: int, nb_appels: int):
                   "affiché en premier ; sur les fiches payantes c'est parfois un "
                   "numéro de suivi d'appel, le vrai numéro est alors dans "
                   "« Autres numéros »."),
+        ("paire", "Métier", "La rubrique PagesJaunes de la fiche, en français même "
+                            "hors Québec : le site traduit ses catégories."),
         ("paire", "Fiche PagesJaunes", "Le lien vers la fiche d'origine, pour vérifier."),
         ("vide", "", ""),
         ("section", "Colonnes que tu remplis", ""),
@@ -358,14 +402,14 @@ def feuille_guide(classeur: Workbook, nb_fiches: int, nb_appels: int):
         ("paire", "Personne contact", "Qui répond, pour redemander la bonne personne."),
         ("paire", "Courriel", "L'adresse recueillie pendant l'appel."),
         ("paire", "Appels notés / Dernière note",
-                  "Recopiés du carnet. Si tu notes tes appels ici plutôt que dans "
-                  "le carnet, tiens le compteur à jour : le sommaire s'en sert."),
+                  "Tiens le compteur à jour quand tu notes un appel : le sommaire "
+                  "s'en sert."),
         ("vide", "", ""),
-        ("section", "Résultats d'appel du carnet", ""),
+        ("section", "Résultats d'appel", ""),
         ("paire", "Vocabulaire",
                   ", ".join(v for k, v in RESULTATS.items() if k)
-                  + ". Il apparaît entre crochets dans « Dernière note » et en "
-                    "clair dans la feuille Appels."),
+                  + ". Il apparaît entre crochets dans « Dernière note »"
+                  + (" et en clair dans la feuille Appels." if avec_appels else ".")),
         ("vide", "", ""),
         ("section", "Avant d'appeler", ""),
         ("texte", "", "Ce sont des coordonnées d'entreprises publiées "
@@ -401,6 +445,28 @@ def feuille_guide(classeur: Workbook, nb_fiches: int, nb_appels: int):
     return feuille
 
 
+def construire_classeur(fiches: list[tuple[str, dict]], sortie: Path,
+                        titre: str, origine: str, avec_appels: bool = True) -> dict:
+    """Écrit le classeur et renvoie les comptes utiles au compte rendu."""
+    classeur = Workbook()
+    feuille_leads(classeur, fiches)
+    nb_appels = feuille_appels(classeur, fiches) if avec_appels else 0
+    nb_villes = feuille_comptes(classeur, fiches, "Villes", "ville", "F", "Municipalité")
+    nb_metiers = feuille_comptes(classeur, fiches, "Métiers", "secteur", "D", "Métier")
+    feuille_sommaire(classeur, fiches, titre, nb_villes, nb_metiers)
+    feuille_guide(classeur, len(fiches), nb_appels, origine, avec_appels)
+    classeur.active = 0
+
+    sortie.parent.mkdir(parents=True, exist_ok=True)
+    classeur.save(sortie)
+    return {
+        "fiches": len(fiches),
+        "villes": nb_villes,
+        "metiers": len({(f.get("secteur") or "") for _, f in fiches}),
+        "appels": nb_appels,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parseur = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parseur.add_argument("--fiches", type=Path, action="append", required=True,
@@ -418,20 +484,19 @@ def main(argv: list[str] | None = None) -> int:
     if not fiches:
         parseur.error("aucune fiche trouvée")
 
-    classeur = Workbook()
-    feuille_leads(classeur, fiches)
-    _, nb_appels = feuille_appels(classeur, fiches)
-    feuille_sommaire(classeur, fiches)
-    feuille_guide(classeur, len(fiches), nb_appels)
-    classeur.active = 0
-
-    args.sortie.parent.mkdir(parents=True, exist_ok=True)
-    classeur.save(args.sortie)
-
-    villes = {(f.get("ville") or "") for _, f in fiches}
-    metiers = {(f.get("secteur") or "") for _, f in fiches}
-    print(f"{len(fiches)} fiches, {len(villes)} municipalités, {len(metiers)} métiers, "
-          f"{nb_appels} appel(s) noté(s) -> {args.sortie}")
+    nb_appels = sum(len(f.get("notes") or []) for _, f in fiches)
+    origine = (
+        f"{len(fiches)} fiches, {nb_appels} appel(s) noté(s). Le carnet en ligne "
+        f"reste la source vivante ; ce fichier est une photo prise le "
+        f"{datetime.now():%Y-%m-%d}. Ce que tu écris ici ne remonte pas dans le "
+        "carnet, et l'inverse non plus."
+    )
+    comptes = construire_classeur(fiches, args.sortie,
+                                  titre="Carnet de prospection Québec",
+                                  origine=origine, avec_appels=True)
+    print(f"{comptes['fiches']} fiches, {comptes['villes']} municipalités, "
+          f"{comptes['metiers']} métiers, {comptes['appels']} appel(s) noté(s) "
+          f"-> {args.sortie}")
     return 0
 
 
