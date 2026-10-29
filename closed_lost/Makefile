@@ -9,9 +9,12 @@
 #   make test      - parser / repair / hint unit tests
 #
 # Override the source file: make import XLSX=path/to/Closed_Lost_....xlsx
+# Rows whose Opportunity Name matches EXCLUDE (case-insensitive regex) are dropped at import.
+# Default drops renewal opportunities; use `make import EXCLUDE=` to keep everything.
 
 PY   ?= python3
 PORT ?= 8765
+EXCLUDE ?= renewal
 XLSX ?= $(firstword $(wildcard ../Closed_Lost*.xlsx Closed_Lost*.xlsx data/Closed_Lost*.xlsx))
 
 .PHONY: install import run dev build standalone test clean
@@ -21,7 +24,7 @@ install:
 	cd frontend && npm install
 
 import:
-	$(PY) importer/import_data.py $(XLSX)
+	$(PY) importer/import_data.py $(XLSX) $(if $(EXCLUDE),--exclude-name "$(EXCLUDE)")
 
 build:
 	cd frontend && npm install --no-audit --no-fund && npm run build

@@ -59,6 +59,8 @@ export interface Meta {
   buckets: string[]
   line_types: LineType[]
   statuses: Status[]
+  excluded_name_pattern?: string | null
+  excluded_count?: number
 }
 
 export interface Dataset {

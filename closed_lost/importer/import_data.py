@@ -18,7 +18,9 @@ What it does
    the ``opportunities`` table of ``data/closed_lost.sqlite`` - the ``edits``
    table in the same database is never touched, so statuses, notes and
    overrides survive re-imports.
-5. Prints (and saves to ``data/import_report.txt``) a validation report:
+5. Optionally drops rows whose Opportunity Name matches ``--exclude-name``
+   (case-insensitive regex), e.g. ``--exclude-name renewal``.
+6. Prints (and saves to ``data/import_report.txt``) a validation report:
    row count, extraction sources, bucket distribution and 20 random rows
    with the original text next to the parsed count/type.
 """
@@ -362,6 +364,8 @@ def build_report(opportunities: list[dict], read_stats: dict, build_stats: dict,
     out.append(f"Source file        : {meta['source_file']}")
     out.append(f"Header row         : {read_stats.get('header_row')}")
     out.append(f"Opportunities      : {n:,}")
+    if meta.get("excluded_name_pattern"):
+        out.append(f"Excluded by name   : {meta['excluded_count']:,} rows whose Opportunity Name matches /{meta['excluded_name_pattern']}/i")
     out.append(f"Skipped rows       : blank owner={read_stats.get('skipped_blank_owner', 0)}, "
                f"footer={read_stats.get('skipped_footer', 0)}, summary/total={read_stats.get('skipped_summary', 0)}")
     out.append(f"Repaired names     : accounts={build_stats.get('repaired_account_names', 0)}, "
@@ -432,6 +436,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out-dir", default=str(PROJECT_DIR / "data"), help="output folder (default: closed_lost/data)")
     ap.add_argument("--seed", type=int, default=42, help="seed for the random validation sample")
     ap.add_argument("--sample", type=int, default=20, help="number of random rows in the report")
+    ap.add_argument("--exclude-name", metavar="REGEX", default=None,
+                    help="drop opportunities whose Opportunity Name matches this case-insensitive regex, e.g. 'renewal'")
     args = ap.parse_args(argv)
 
     source = find_source_file(args.xlsx)
@@ -442,11 +448,20 @@ def main(argv: list[str] | None = None) -> int:
     raw_records, read_stats = read_rows(source)
     opportunities, build_stats = build_opportunities(raw_records)
 
+    excluded = 0
+    if args.exclude_name:
+        rx = re.compile(args.exclude_name, re.IGNORECASE)
+        kept = [o for o in opportunities if not rx.search(o["opportunity_name"] or "")]
+        excluded = len(opportunities) - len(kept)
+        opportunities = kept
+
     meta = {
         "source_file": source.name,
         "imported_at": datetime.now().isoformat(timespec="seconds"),
         "row_count": len(opportunities),
         "parser_version": PARSER_VERSION,
+        "excluded_name_pattern": args.exclude_name,
+        "excluded_count": excluded,
         "buckets": BUCKETS,
         "line_types": ["MP", "WLS", "Both", "Unknown"],
         "statuses": ["Not started", "Called", "Left voicemail", "Callback scheduled", "Not interested", "Won back"],
