@@ -11,3 +11,8 @@ __pycache__/
 venv/
 .pytest_cache/
 .DS_Store
+
+# Closed Lost workbench (closed_lost/): build output and caches
+node_modules/
+closed_lost/frontend/dist/
+closed_lost/frontend/node_modules/.tmp/
