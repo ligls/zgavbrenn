@@ -39,11 +39,12 @@ make import
 # or: python3 importer/import_data.py path/to/Closed_Lost_Q4_2024-....xlsx
 ```
 
-By default rows whose Opportunity Name contains **renewal** (case-insensitive)
-are dropped at import (`EXCLUDE ?= renewal` in the Makefile, i.e.
-`--exclude-name renewal`).  Use `make import EXCLUDE=` to keep every row, or
-any other regex, e.g. `EXCLUDE='renewal|rnwl?s?\b'`.  The excluded count is
-shown in the report and in the app's subtitle.
+By default, renewal opportunities are dropped at import: any Opportunity Name
+containing **renew** (renewal, renewals, renew, renewed), the typo **renwal**,
+or the abbreviations **RNW / RNWL / RNWLS** (case-insensitive).  This is the
+`EXCLUDE` regex in the Makefile, passed as `--exclude-name`.  Use
+`make import EXCLUDE=` to keep every row, or `EXCLUDE=renewal` for the plain
+word only.  The excluded count is shown in the report and in the app's subtitle.
 
 The importer prints a validation report (also saved to `data/import_report.txt`):
 row count, skipped metadata/footer rows, repaired names, extraction-source

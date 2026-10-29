@@ -10,11 +10,12 @@
 #
 # Override the source file: make import XLSX=path/to/Closed_Lost_....xlsx
 # Rows whose Opportunity Name matches EXCLUDE (case-insensitive regex) are dropped at import.
-# Default drops renewal opportunities; use `make import EXCLUDE=` to keep everything.
+# Default drops renewal opportunities: renewal(s), renew, the typo renwal, and the RNW / RNWL / RNWLS
+# abbreviations. Use `make import EXCLUDE=` to keep everything, or EXCLUDE=renewal for the word alone.
 
 PY   ?= python3
 PORT ?= 8765
-EXCLUDE ?= renewal
+EXCLUDE ?= renew|renwal|(?<![a-z])rnw(?:ls?)?(?![a-z])
 XLSX ?= $(firstword $(wildcard ../Closed_Lost*.xlsx Closed_Lost*.xlsx data/Closed_Lost*.xlsx))
 
 .PHONY: install import run dev build standalone test clean
