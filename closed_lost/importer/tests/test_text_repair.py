@@ -50,5 +50,6 @@ def test_none():
 def test_clean_whitespace():
     assert clean_whitespace("\xa01 WLS ET +   ouverture ") == "1 WLS ET + ouverture"
     assert clean_whitespace("line one \r\n  line two\xa0") == "line one\nline two"
+    assert clean_whitespace("#NoHSIA \ufeff NAME") == "#NoHSIA NAME"  # stray BOM inside a note
     assert clean_whitespace("   ") is None
     assert clean_whitespace(None) is None

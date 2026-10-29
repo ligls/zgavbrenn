@@ -4,8 +4,9 @@ import DetailDrawer from './components/DetailDrawer'
 import FiltersPanel from './components/FiltersPanel'
 import OppCards from './components/OppCards'
 import OppTable from './components/OppTable'
-import { deleteEdit, downloadBlob, exportXlsx, fetchDataset, fetchEdits, saveEdit } from './lib/api'
-import { EXPORT_COLUMNS, exportFilename, rowsToCsv } from './lib/export'
+import EditsMenu from './components/EditsMenu'
+import { downloadBlob } from './lib/api'
+import { exportFilename, rowsToCsv, rowsToXlsx } from './lib/export'
 import {
   applyFilters,
   EMPTY_FILTERS,
@@ -17,6 +18,7 @@ import {
   type SortKey,
 } from './lib/filters'
 import { buildRow, formatNumber } from './lib/rows'
+import { createStore, LocalStore } from './lib/store'
 import type { Dataset, Edit, EditInput, LineType, Row } from './types'
 
 type Layout = 'cards' | 'table'
@@ -47,6 +49,7 @@ function savePref(key: string, value: unknown) {
 }
 
 export default function App() {
+  const [store] = useState(() => createStore())
   const [dataset, setDataset] = useState<Dataset | null>(null)
   const [edits, setEdits] = useState<Record<string, Edit>>({})
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -61,7 +64,7 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([fetchDataset(), fetchEdits()])
+    Promise.all([store.loadDataset(), store.loadEdits()])
       .then(([ds, ed]) => {
         if (cancelled) return
         setDataset(ds)
@@ -71,7 +74,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [store])
 
   useEffect(() => savePref('cl.filters', filters), [filters])
   useEffect(() => savePref('cl.sort', sort), [sort])
@@ -100,19 +103,25 @@ export default function App() {
   const selectedIndex = selectedId ? filtered.findIndex((r) => r.id === selectedId) : -1
   const selectedRow = selectedIndex >= 0 ? filtered[selectedIndex] : (rows.find((r) => r.id === selectedId) ?? null)
 
-  const onSave = useCallback(async (id: string, input: EditInput) => {
-    const saved = await saveEdit(id, input)
-    setEdits((prev) => ({ ...prev, [id]: saved }))
-  }, [])
+  const onSave = useCallback(
+    async (id: string, input: EditInput) => {
+      const saved = await store.saveEdit(id, input)
+      setEdits((prev) => ({ ...prev, [id]: saved }))
+    },
+    [store],
+  )
 
-  const onDeleteEdit = useCallback(async (id: string) => {
-    await deleteEdit(id)
-    setEdits((prev) => {
-      const next = { ...prev }
-      delete next[id]
-      return next
-    })
-  }, [])
+  const onDeleteEdit = useCallback(
+    async (id: string) => {
+      await store.deleteEdit(id)
+      setEdits((prev) => {
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+    },
+    [store],
+  )
 
   const toggleSortKey = (key: SortKey) => {
     setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'line_count' ? 'desc' : 'asc' }))
@@ -125,13 +134,9 @@ export default function App() {
     downloadBlob(blob, exportFilename('csv'))
     setToast(`Exported ${formatNumber(filtered.length)} rows to CSV`)
   }
-  const exportExcel = async () => {
+  const exportExcel = () => {
     try {
-      const blob = await exportXlsx(
-        filtered.map((r) => r.id),
-        EXPORT_COLUMNS,
-      )
-      downloadBlob(blob, exportFilename('xlsx'))
+      downloadBlob(rowsToXlsx(filtered), exportFilename('xlsx'))
       setToast(`Exported ${formatNumber(filtered.length)} rows to Excel`)
     } catch (e) {
       setToast(`Export failed: ${(e as Error).message}`)
@@ -143,12 +148,14 @@ export default function App() {
       <div className="boot error-screen">
         <h1>Closed Lost Renewals</h1>
         <p>Could not load the data: {loadError}</p>
-        <p>
-          Run the importer first, then start the server:
-        </p>
-        <pre>
-          make import{'\n'}make run
-        </pre>
+        {store.mode === 'server' ? (
+          <>
+            <p>Run the importer first, then start the server:</p>
+            <pre>make import{'\n'}make run</pre>
+          </>
+        ) : (
+          <p>This file seems to be missing its embedded data. Rebuild it with <code>make standalone</code>.</p>
+        )}
       </div>
     )
   }
@@ -168,6 +175,7 @@ export default function App() {
           <h1>Closed Lost Renewals</h1>
           <span className="brand-sub">
             Q4 2024 Closed Lost · renewals due Q4 2026 · {dataset.meta.source_file}
+            {store.mode === 'standalone' && ` · imported ${dataset.meta.imported_at.replace('T', ' ')}`}
           </span>
         </div>
         <div className="count">
@@ -205,11 +213,14 @@ export default function App() {
               Table
             </button>
           </div>
+          {store.mode === 'standalone' && (
+            <EditsMenu store={store as LocalStore} edits={edits} onReplace={setEdits} onToast={setToast} />
+          )}
           <div className="export">
             <button type="button" onClick={exportCsv} title="Export the current filtered view (with your status and notes)">
               CSV
             </button>
-            <button type="button" onClick={() => void exportExcel()} title="Export the current filtered view (with your status and notes)">
+            <button type="button" onClick={exportExcel} title="Export the current filtered view (with your status and notes)">
               Excel
             </button>
           </div>

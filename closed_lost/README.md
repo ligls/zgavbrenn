@@ -8,11 +8,13 @@ contracts run ~24 months, so these accounts come up for renewal in **Q4 2026**.
   mojibake, parses line counts/types, computes renewal dates and contract-end
   hints, writes `data/opportunities.json` + `data/closed_lost.sqlite`, prints a
   validation report.
-* **Server** (`server/server.py`, Flask): serves the data, persists your edits
-  (status, notes, follow-up, overrides) in SQLite, builds Excel exports, serves
-  the built front end.  Binds to 127.0.0.1 only.
+* **Server** (`server/server.py`, Flask, optional): serves the data, persists
+  your edits (status, notes, follow-up, overrides) in SQLite and serves the
+  built front end.  Binds to 127.0.0.1 only.
 * **Front end** (`frontend/`, React + Vite + TypeScript): dashboard, filters,
-  virtualised card/table views, detail drawer with editing, CSV/XLSX export.
+  virtualised card/table views, detail drawer with editing, CSV/XLSX export
+  (built in the browser).  Also ships as a **single self-contained HTML file**
+  (`make standalone`) that needs no server at all.
 
 Nothing talks to the network at run time.  The xlsx, `data/` and the built
 `dist/` are git-ignored (the export is confidential).
@@ -47,7 +49,25 @@ the `edits` table**, so your statuses, notes and overrides survive.  Edits are
 keyed on a stable hash of owner + account name + opportunity name + close date
 (raw values), so they re-attach to the same rows after a fresh export.
 
-## 2. Run
+## 2a. Single HTML file (no server)
+
+```bash
+make standalone         # -> data/Closed_Lost_Workbench.html
+```
+
+Builds an inlined front end and embeds the imported data (compressed) into one
+HTML file you can open by double-clicking.  Everything works offline from
+`file://`: filters, cards/table, the detail drawer, CSV and Excel export.
+
+Edits made in that file (status, notes, follow-up, overrides) are stored in
+the browser's local storage for that file.  The **"N edits"** menu in the
+header lets you **save them to a JSON file**, **load/merge a JSON file**
+(newest edit per row wins), and in Chrome/Edge **auto-save to a file** for the
+session.  Any edits already in `data/closed_lost.sqlite` when you build are
+embedded as a starting point.  Rebuilding the file after a new import keeps
+your edits because they are keyed on the stable row hash.
+
+## 2b. Run with the server
 
 ```bash
 make run                # builds frontend/dist if missing, then http://127.0.0.1:8765
@@ -55,7 +75,8 @@ make run                # builds frontend/dist if missing, then http://127.0.0.1
 
 For development with hot reload: `make dev` (Flask on :8765 + Vite on :5173,
 which proxies `/api`).  `make build` rebuilds `frontend/dist` after front-end
-changes.  `make test` runs the parser / repair / hint unit tests.
+changes; `make standalone` rebuilds the single file.  `make test` runs the
+parser / repair / hint unit tests.
 
 ## What the app does
 
@@ -129,8 +150,9 @@ pinned by `importer/tests/test_line_parser.py`.
 | `data/opportunities.json` | `{meta, opportunities[]}` – loaded by the app |
 | `data/closed_lost.sqlite` | `opportunities` (replaced on import), `edits` (yours, kept), `imports` (log) |
 | `data/import_report.txt` | last validation report |
+| `data/Closed_Lost_Workbench.html` | the single-file app (`make standalone`) |
 
-Back up `data/closed_lost.sqlite` to keep your work.
+Back up `data/closed_lost.sqlite` (server mode) or the JSON files you save from the edits menu (single-file mode) to keep your work.
 
 ## Tests
 

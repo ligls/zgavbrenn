@@ -36,30 +36,6 @@ export async function deleteEdit(rowHash: string): Promise<void> {
   await handle<unknown>(await fetch(`/api/edits/${encodeURIComponent(rowHash)}`, { method: 'DELETE' }))
 }
 
-export interface ExportColumn {
-  key: string
-  label: string
-}
-
-export async function exportXlsx(ids: string[], columns: ExportColumn[]): Promise<Blob> {
-  const res = await fetch('/api/export.xlsx', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ids, columns }),
-  })
-  if (!res.ok) {
-    let message = `${res.status} ${res.statusText}`
-    try {
-      const body = (await res.json()) as { error?: string }
-      if (body.error) message = body.error
-    } catch {
-      /* ignore */
-    }
-    throw new Error(message)
-  }
-  return res.blob()
-}
-
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')

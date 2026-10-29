@@ -8,7 +8,6 @@ Local web server for the Closed Lost renewal workbench.
 * ``GET  /api/edits``                every saved edit, keyed by row hash
 * ``PUT  /api/edits/<row_hash>``     upsert one edit (status, notes, overrides, follow-up)
 * ``DELETE /api/edits/<row_hash>``   remove an edit (back to the parsed values)
-* ``POST /api/export.xlsx``          build an .xlsx of the posted rows (current filtered view)
 * everything else                    the built React app in frontend/dist (SPA fallback)
 
 Edits live in the ``edits`` table of data/closed_lost.sqlite, next to the
@@ -19,7 +18,6 @@ re-imports.  Nothing here talks to the network: it binds to 127.0.0.1.
 from __future__ import annotations
 
 import argparse
-import io
 import json
 import sqlite3
 from datetime import datetime
@@ -160,60 +158,6 @@ def create_app(data_dir: Path) -> Flask:
             con.close()
         return jsonify({"deleted": row_hash})
 
-    @app.post("/api/export.xlsx")
-    def api_export_xlsx():
-        """Body: {"ids": [...], "columns": [{"key":..., "label":...}, ...]} -> .xlsx download."""
-        from openpyxl import Workbook
-        from openpyxl.styles import Font
-        from openpyxl.utils import get_column_letter
-
-        body = request.get_json(force=True, silent=True) or {}
-        ids: list[str] = body.get("ids") or []
-        columns: list[dict] = body.get("columns") or []
-        if not columns:
-            abort(400, description="columns required")
-
-        payload = load_dataset()
-        by_id = cache["by_id"]
-        con = db()
-        try:
-            edits = {r["row_hash"]: row_to_edit(r) for r in con.execute("SELECT * FROM edits").fetchall()}
-        finally:
-            con.close()
-
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Closed Lost Q4 2024"
-        ws.append([c["label"] for c in columns])
-        for cell in ws[1]:
-            cell.font = Font(bold=True)
-        for rid in ids:
-            opp = by_id.get(rid)
-            if not opp:
-                continue
-            edit = edits.get(rid, {})
-            merged = merge_row(opp, edit)
-            ws.append([merged.get(c["key"]) for c in columns])
-        for idx, col in enumerate(columns, start=1):
-            width = max(10, min(60, len(col["label"]) + 2))
-            if col["key"] in ("additional_info", "notes"):
-                width = 60
-            elif col["key"] in ("account_name", "opportunity_name", "owner"):
-                width = 36
-            ws.column_dimensions[get_column_letter(idx)].width = width
-        ws.freeze_panes = "A2"
-        ws.auto_filter.ref = ws.dimensions
-
-        buf = io.BytesIO()
-        wb.save(buf)
-        buf.seek(0)
-        stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
-        return Response(
-            buf.getvalue(),
-            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f'attachment; filename="closed_lost_export_{stamp}.xlsx"'},
-        )
-
     @app.get("/api/health")
     def api_health():
         return jsonify({"ok": True, "data": json_path.exists(), "dist": (DIST_DIR / "index.html").exists()})
@@ -245,21 +189,6 @@ def create_app(data_dir: Path) -> Flask:
         return err
 
     return app
-
-
-def merge_row(opp: dict, edit: dict) -> dict:
-    """Flatten an opportunity with its edit into export-friendly values."""
-    count = edit.get("line_count_override")
-    ltype = edit.get("line_type_override")
-    merged = dict(opp)
-    merged["types_mentioned"] = ", ".join(opp.get("types_mentioned") or [])
-    merged["effective_line_count"] = count if count is not None else opp.get("line_count")
-    merged["effective_line_type"] = ltype or opp.get("line_type")
-    merged["status"] = edit.get("status") or "Not started"
-    merged["notes"] = edit.get("notes") or ""
-    merged["follow_up_date"] = edit.get("follow_up_date") or ""
-    merged["edited_at"] = edit.get("updated_at") or ""
-    return merged
 
 
 def main() -> None:

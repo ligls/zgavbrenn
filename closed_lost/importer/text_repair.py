@@ -138,7 +138,7 @@ def clean_whitespace(text: Optional[str]) -> Optional[str]:
     """Normalise non-breaking spaces and trim; keep internal newlines."""
     if text is None:
         return None
-    s = str(text).replace(" ", " ").replace("\r\n", "\n").replace("\r", "\n")
+    s = str(text).replace("\ufeff", "").replace("\u00a0", " ").replace("\r\n", "\n").replace("\r", "\n")
     s = re.sub(r"[ \t]+", " ", s)
     s = "\n".join(line.strip() for line in s.split("\n")).strip()
     return s or None

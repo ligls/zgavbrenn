@@ -15,4 +15,5 @@ venv/
 # Closed Lost workbench (closed_lost/): build output and caches
 node_modules/
 closed_lost/frontend/dist/
+closed_lost/frontend/dist-standalone/
 closed_lost/frontend/node_modules/.tmp/

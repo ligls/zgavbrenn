@@ -1035,6 +1035,53 @@ code {
   font-weight: 600;
 }
 
+/* ------------------------------------------------------------------ edits menu (standalone) */
+.edits-menu {
+  position: relative;
+}
+.edits-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.edits-trigger.has-error {
+  border-color: var(--critical);
+}
+.edits-dot {
+  color: var(--good);
+  font-size: 10px;
+}
+.edits-popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 40;
+  width: 320px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.edits-popover button {
+  text-align: left;
+  width: 100%;
+}
+.edits-note {
+  font-size: 12px;
+  color: var(--text-2);
+  padding: 4px 6px 6px;
+}
+.edits-error {
+  font-size: 12px;
+  color: var(--critical-text);
+  padding: 4px 6px;
+}
+
 /* ------------------------------------------------------------------ toast */
 .toast {
   position: fixed;
