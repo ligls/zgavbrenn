@@ -438,6 +438,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--sample", type=int, default=20, help="number of random rows in the report")
     ap.add_argument("--exclude-name", metavar="REGEX", default=None,
                     help="drop opportunities whose Opportunity Name matches this case-insensitive regex, e.g. 'renewal'")
+    ap.add_argument("--exclude-label", metavar="TEXT", default=None,
+                    help="short human label for the exclusion shown in the app, e.g. 'renewal / RNW'")
     args = ap.parse_args(argv)
 
     source = find_source_file(args.xlsx)
@@ -462,6 +464,7 @@ def main(argv: list[str] | None = None) -> int:
         "parser_version": PARSER_VERSION,
         "excluded_name_pattern": args.exclude_name,
         "excluded_count": excluded,
+        "excluded_label": args.exclude_label if args.exclude_name else None,
         "buckets": BUCKETS,
         "line_types": ["MP", "WLS", "Both", "Unknown"],
         "statuses": ["Not started", "Called", "Left voicemail", "Callback scheduled", "Not interested", "Won back"],

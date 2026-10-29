@@ -16,6 +16,7 @@
 PY   ?= python3
 PORT ?= 8765
 EXCLUDE ?= renew|renwal|(?<![a-z])rnw(?:ls?)?(?![a-z])
+EXCLUDE_LABEL ?= renewal / RNW
 XLSX ?= $(firstword $(wildcard ../Closed_Lost*.xlsx Closed_Lost*.xlsx data/Closed_Lost*.xlsx))
 
 .PHONY: install import run dev build standalone test clean
@@ -25,7 +26,7 @@ install:
 	cd frontend && npm install
 
 import:
-	$(PY) importer/import_data.py $(XLSX) $(if $(EXCLUDE),--exclude-name "$(EXCLUDE)")
+	$(PY) importer/import_data.py $(XLSX) $(if $(EXCLUDE),--exclude-name "$(EXCLUDE)" --exclude-label "$(EXCLUDE_LABEL)")
 
 build:
 	cd frontend && npm install --no-audit --no-fund && npm run build

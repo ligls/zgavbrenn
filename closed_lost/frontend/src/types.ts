@@ -61,6 +61,7 @@ export interface Meta {
   statuses: Status[]
   excluded_name_pattern?: string | null
   excluded_count?: number
+  excluded_label?: string | null
 }
 
 export interface Dataset {

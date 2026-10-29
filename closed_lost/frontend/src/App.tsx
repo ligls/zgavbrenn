@@ -177,7 +177,7 @@ export default function App() {
             Q4 2024 Closed Lost · renewals due Q4 2026 · {dataset.meta.source_file}
             {store.mode === 'standalone' && ` · imported ${dataset.meta.imported_at.replace('T', ' ')}`}
             {dataset.meta.excluded_count
-              ? ` · ${formatNumber(dataset.meta.excluded_count)} "${dataset.meta.excluded_name_pattern}" opportunities excluded`
+              ? ` · ${formatNumber(dataset.meta.excluded_count)} ${dataset.meta.excluded_label ?? `"${dataset.meta.excluded_name_pattern}"`} opportunities excluded`
               : ''}
           </span>
         </div>
