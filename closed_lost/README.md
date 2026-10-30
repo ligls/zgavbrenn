@@ -74,6 +74,20 @@ session.  Any edits already in `data/closed_lost.sqlite` when you build are
 embedded as a starting point.  Rebuilding the file after a new import keeps
 your edits because they are keyed on the stable row hash.
 
+## 2c. Work on it with a colleague in Google Sheets
+
+```bash
+make sheets             # -> data/Closed_Lost_Q4_2024_collaboration.xlsx
+```
+
+Builds a workbook to upload to Google Drive (open with Google Sheets, then
+share): an *Opportunities* sheet with the work columns first (Status dropdown,
+Assigned to, Notes, Follow-up) followed by every source and derived column,
+frozen header, filter, highlighted unknown counts and overdue follow-ups; a
+*Dashboard* sheet with live COUNTIF formulas (bucket, type, status, close
+month); and a *Read me* sheet.  Edits already in SQLite are pre-filled; pass a
+JSON saved from the single-file app with `make sheets EDITS=path/to/edits.json`.
+
 ## 2b. Run with the server
 
 ```bash

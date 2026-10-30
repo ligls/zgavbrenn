@@ -6,6 +6,7 @@
 #   make dev       - Flask API + Vite dev server with hot reload (http://127.0.0.1:5173)
 #   make build     - rebuild frontend/dist
 #   make standalone - one self-contained HTML file (data embedded) -> data/Closed_Lost_Workbench.html
+#   make sheets    - collaboration workbook for Google Sheets -> data/Closed_Lost_Q4_2024_collaboration.xlsx
 #   make test      - parser / repair / hint unit tests
 #
 # Override the source file: make import XLSX=path/to/Closed_Lost_....xlsx
@@ -19,7 +20,7 @@ EXCLUDE ?= renew|renwal|(?<![a-z])rnw(?:ls?)?(?![a-z])
 EXCLUDE_LABEL ?= renewal / RNW
 XLSX ?= $(firstword $(wildcard ../Closed_Lost*.xlsx Closed_Lost*.xlsx data/Closed_Lost*.xlsx))
 
-.PHONY: install import run dev build standalone test clean
+.PHONY: install import run dev build standalone sheets test clean
 
 install:
 	$(PY) -m pip install -r requirements.txt
@@ -34,6 +35,9 @@ build:
 standalone:
 	cd frontend && npm install --no-audit --no-fund && npm run build:standalone
 	$(PY) importer/build_standalone.py
+
+sheets:
+	$(PY) importer/export_sheets.py $(if $(EDITS),--edits "$(EDITS)")
 
 run:
 	@test -f frontend/dist/index.html || $(MAKE) build
