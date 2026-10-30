@@ -18,7 +18,7 @@ import {
   type SortKey,
 } from './lib/filters'
 import { buildRow, formatNumber } from './lib/rows'
-import { createStore, LocalStore } from './lib/store'
+import { createStore, DeclinedDownload, type StoreInfo } from './lib/store'
 import type { Dataset, Edit, EditInput, LineType, Row } from './types'
 
 type Layout = 'cards' | 'table'
@@ -52,7 +52,10 @@ export default function App() {
   const [store] = useState(() => createStore())
   const [dataset, setDataset] = useState<Dataset | null>(null)
   const [edits, setEdits] = useState<Record<string, Edit>>({})
+  const [editsReady, setEditsReady] = useState(false)
+  const [storeInfo, setStoreInfo] = useState<StoreInfo>(store.info)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [names, setNames] = useState<Record<string, string>>({})
 
   const [filters, setFilters] = useState<Filters>(() => loadPref('cl.filters', EMPTY_FILTERS))
   const [sort, setSort] = useState<Sort>(() => loadPref('cl.sort', { key: 'close_date', dir: 'asc' } as Sort))
@@ -62,17 +65,35 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
+  // Load the dataset first so the page renders at once; edits (and, in a shared
+  // artifact, the live subscription) light up when the store answers.
   useEffect(() => {
     let cancelled = false
-    Promise.all([store.loadDataset(), store.loadEdits()])
-      .then(([ds, ed]) => {
+    let unsubscribe: (() => void) | null = null
+    store.onInfoChange = (info) => !cancelled && setStoreInfo(info)
+    store
+      .loadDataset()
+      .then((ds) => {
         if (cancelled) return
         setDataset(ds)
-        setEdits(ed)
+        return store.loadEdits().then((ed) => {
+          if (cancelled) return
+          setEdits(ed)
+          setEditsReady(true)
+          setStoreInfo(store.info)
+          if (store.subscribe) {
+            unsubscribe = store.subscribe(
+              (next) => !cancelled && setEdits(next),
+              (message) => !cancelled && setToast(message),
+            )
+          }
+        })
       })
       .catch((e: Error) => !cancelled && setLoadError(e.message))
     return () => {
       cancelled = true
+      store.onInfoChange = null
+      unsubscribe?.()
     }
   }, [store])
 
@@ -81,10 +102,11 @@ export default function App() {
   useEffect(() => savePref('cl.layout', layout), [layout])
   useEffect(() => savePref('cl.dash', showDashboard ? 'on' : 'off'), [showDashboard])
   useEffect(() => {
+    if (store.mode === 'artifact') return // the claude.ai viewer owns the theme
     savePref('cl.theme', theme)
     if (theme === 'auto') document.documentElement.removeAttribute('data-theme')
     else document.documentElement.setAttribute('data-theme', theme)
-  }, [theme])
+  }, [theme, store.mode])
 
   useEffect(() => {
     if (!toast) return
@@ -102,6 +124,17 @@ export default function App() {
 
   const selectedIndex = selectedId ? filtered.findIndex((r) => r.id === selectedId) : -1
   const selectedRow = selectedIndex >= 0 ? filtered[selectedIndex] : (rows.find((r) => r.id === selectedId) ?? null)
+
+  // Resolve "saved by" for the open card (shared artifact only).
+  const savedById = selectedRow?.edit?.updated_by ?? null
+  useEffect(() => {
+    if (!savedById || !store.profiles || names[savedById]) return
+    let cancelled = false
+    store.profiles([savedById]).then((res) => !cancelled && setNames((prev) => ({ ...prev, ...res })))
+    return () => {
+      cancelled = true
+    }
+  }, [savedById, store, names])
 
   const onSave = useCallback(
     async (id: string, input: EditInput) => {
@@ -129,19 +162,28 @@ export default function App() {
 
   const toggleIn = (list: string[], value: string) => (list.includes(value) ? list.filter((v) => v !== value) : [...list, value])
 
-  const exportCsv = () => {
-    const blob = new Blob([rowsToCsv(filtered)], { type: 'text/csv;charset=utf-8' })
-    downloadBlob(blob, exportFilename('csv'))
-    setToast(`Exported ${formatNumber(filtered.length)} rows to CSV`)
-  }
-  const exportExcel = () => {
+  const deliver = async (blob: Blob, filename: string, label: string) => {
     try {
-      downloadBlob(rowsToXlsx(filtered), exportFilename('xlsx'))
-      setToast(`Exported ${formatNumber(filtered.length)} rows to Excel`)
+      if (store.download) await store.download(filename, blob)
+      else downloadBlob(blob, filename)
+      setToast(`Exported ${formatNumber(filtered.length)} rows to ${label}`)
     } catch (e) {
+      if (e instanceof DeclinedDownload) return
       setToast(`Export failed: ${(e as Error).message}`)
     }
   }
+  const exportCsv = () => void deliver(new Blob([rowsToCsv(filtered)], { type: 'text/csv;charset=utf-8' }), exportFilename('csv'), 'CSV')
+  const exportExcel = () => {
+    let blob: Blob
+    try {
+      blob = rowsToXlsx(filtered)
+    } catch (e) {
+      setToast(`Export failed: ${(e as Error).message}`)
+      return
+    }
+    void deliver(blob, exportFilename('xlsx'), 'Excel')
+  }
+  const editCount = Object.keys(edits).length
 
   if (loadError) {
     return (
@@ -154,7 +196,7 @@ export default function App() {
             <pre>make import{'\n'}make run</pre>
           </>
         ) : (
-          <p>This file seems to be missing its embedded data. Rebuild it with <code>make standalone</code>.</p>
+          <p>This page seems to be missing its embedded data. Rebuild it with <code>make standalone</code>.</p>
         )}
       </div>
     )
@@ -175,7 +217,7 @@ export default function App() {
           <h1>Closed Lost Renewals</h1>
           <span className="brand-sub">
             Q4 2024 Closed Lost · renewals due Q4 2026 · {dataset.meta.source_file}
-            {store.mode === 'standalone' && ` · imported ${dataset.meta.imported_at.replace('T', ' ')}`}
+            {store.mode !== 'server' && ` · imported ${dataset.meta.imported_at.replace('T', ' ')}`}
             {dataset.meta.excluded_count
               ? ` · ${formatNumber(dataset.meta.excluded_count)} ${dataset.meta.excluded_label ?? `"${dataset.meta.excluded_name_pattern}"`} opportunities excluded`
               : ''}
@@ -216,9 +258,15 @@ export default function App() {
               Table
             </button>
           </div>
-          {store.mode === 'standalone' && (
-            <EditsMenu store={store as LocalStore} edits={edits} onReplace={setEdits} onToast={setToast} />
+          {store.mode === 'artifact' && storeInfo.shared && (
+            <span className={`shared-pill ${storeInfo.readOnly ? 'readonly' : ''}`} title={storeInfo.readOnly ? storeInfo.message ?? '' : 'Statuses, notes and overrides are shared live with everyone who has this page'}>
+              <span className="shared-dot" aria-hidden="true">
+                ●
+              </span>
+              {storeInfo.readOnly ? 'View only' : 'Shared'} · {editsReady ? `${formatNumber(editCount)} edit${editCount === 1 ? '' : 's'}` : 'connecting…'}
+            </span>
           )}
+          {store.local && editsReady && <EditsMenu store={store.local} edits={edits} onReplace={setEdits} onToast={setToast} />}
           <div className="export">
             <button type="button" onClick={exportCsv} title="Export the current filtered view (with your status and notes)">
               CSV
@@ -230,16 +278,24 @@ export default function App() {
           <button type="button" className="icon-btn" onClick={() => setShowDashboard((s) => !s)} title={showDashboard ? 'Hide dashboard' : 'Show dashboard'} aria-pressed={showDashboard}>
             📊
           </button>
-          <button
-            type="button"
-            className="icon-btn"
-            onClick={() => setTheme(theme === 'auto' ? 'dark' : theme === 'dark' ? 'light' : 'auto')}
-            title={`Theme: ${theme} (click to change)`}
-          >
-            {theme === 'dark' ? '🌙' : theme === 'light' ? '☀️' : '◐'}
-          </button>
+          {store.mode !== 'artifact' && (
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => setTheme(theme === 'auto' ? 'dark' : theme === 'dark' ? 'light' : 'auto')}
+              title={`Theme: ${theme} (click to change)`}
+            >
+              {theme === 'dark' ? '🌙' : theme === 'light' ? '☀️' : '◐'}
+            </button>
+          )}
         </div>
       </header>
+
+      {storeInfo.message && (
+        <div className={`banner ${storeInfo.readOnly ? 'warn' : ''}`} role="status">
+          {storeInfo.message}
+        </div>
+      )}
 
       {showDashboard && (
         <Dashboard
@@ -274,6 +330,8 @@ export default function App() {
           onNext={() => selectedIndex >= 0 && selectedIndex < filtered.length - 1 && setSelectedId(filtered[selectedIndex + 1].id)}
           onSave={onSave}
           onDeleteEdit={onDeleteEdit}
+          readOnly={storeInfo.readOnly}
+          savedBy={savedById ? names[savedById] : undefined}
         />
       )}
 

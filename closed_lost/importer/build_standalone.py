@@ -10,6 +10,10 @@ Takes the inlined front end produced by ``npm run build:standalone``
 and writes one HTML file that works from a double-click (file://), with no
 server.  Edits made in that file live in the browser's localStorage and can
 be saved to / loaded from JSON files from the app's "edits" menu.
+
+It also writes ``*.artifact.html``: the same page as a body fragment ready to
+be published as a claude.ai artifact (capabilities ``db`` + ``user`` +
+``downloads``), where edits are shared live between everyone who has the link.
 """
 
 from __future__ import annotations
@@ -51,6 +55,7 @@ def main() -> int:
     ap.add_argument("--html", default=str(DIST_HTML), help="inlined index.html from npm run build:standalone")
     ap.add_argument("--out", default=str(DATA_DIR / "Closed_Lost_Workbench.html"))
     ap.add_argument("--no-edits", action="store_true", help="do not embed the edits saved in SQLite")
+    ap.add_argument("--artifact-out", default=None, help="where to write the claude.ai artifact fragment (default: next to --out, *.artifact.html)")
     args = ap.parse_args()
 
     data_path, html_path, out_path = Path(args.data), Path(args.html), Path(args.out)
@@ -79,7 +84,41 @@ def main() -> int:
     print(f"Embedded {payload['meta']['row_count']:,} opportunities ({len(raw) / 1e6:.1f} MB JSON -> {len(blob) / 1e6:.1f} MB compressed) "
           f"and {len(edits)} saved edit(s).")
     print(f"Wrote {out_path} ({out_path.stat().st_size / 1e6:.1f} MB). Open it by double-clicking.")
+
+    fragment_path = Path(args.artifact_out) if args.artifact_out else out_path.with_name(out_path.stem + ".artifact.html")
+    fragment_path.write_text(to_artifact_fragment(html), encoding="utf-8")
+    print(f"Wrote {fragment_path} ({fragment_path.stat().st_size / 1e6:.1f} MB): page fragment for publishing as a claude.ai artifact "
+          f"(capabilities db + user + downloads).")
     return 0
+
+
+def to_artifact_fragment(html: str) -> str:
+    """
+    Turn the inlined single-file page into the fragment the claude.ai Artifact
+    tool expects: no doctype/html/head/body, <title> and <style> first, then
+    the root element, the embedded data and the module script.  The viewer
+    owns the theme, so the local theme bootstrap script is dropped.
+    """
+    import re
+
+    title = re.search(r"<title>.*?</title>", html, re.S)
+    css = re.search(r'<style rel="stylesheet"[^>]*>(.*?)</style>\s*</head>', html, re.S)
+    script_start = html.find('<script type="module"')
+    if not title or not css or script_start < 0:
+        sys.exit("Could not locate title / stylesheet / module script in the built HTML.")
+    script_end = html.index("</script>", script_start) + len("</script>")
+    module_script = html[script_start:script_end]
+    data = re.search(r'<script id="cl-data" type="application/gzip\+base64">.*?</script>', html, re.S)
+    if not data:
+        sys.exit("Embedded data block not found in the built HTML.")
+    return "\n".join([
+        title.group(0),
+        f"<style>{css.group(1)}</style>",
+        '<div id="root"></div>',
+        data.group(0),
+        module_script,
+        "",
+    ])
 
 
 if __name__ == "__main__":

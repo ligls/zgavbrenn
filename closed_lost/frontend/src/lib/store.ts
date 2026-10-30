@@ -5,18 +5,45 @@ import { deleteEdit as apiDeleteEdit, fetchDataset, fetchEdits, saveEdit as apiS
 /**
  * Where the data and your edits live.
  *
- * - ServerStore: the Flask app (data/opportunities.json + SQLite edits).
- * - LocalStore: the single-file build. The dataset is embedded in the HTML
- *   (gzip + base64 in <script id="cl-data">), edits are kept in the browser's
- *   localStorage and can be saved to / loaded from a JSON file, or auto-saved
- *   to a file picked once per session (Chrome/Edge File System Access API).
+ * - ServerStore:   the Flask app (data/opportunities.json + SQLite edits).
+ * - LocalStore:    the single-file build opened from disk. The dataset is
+ *                  embedded in the HTML (gzip + base64 in <script id="cl-data">),
+ *                  edits live in the browser's localStorage and can be saved to /
+ *                  loaded from a JSON file, or auto-saved to a file picked once
+ *                  per session (Chrome/Edge File System Access API).
+ * - ArtifactStore: the same embedded page published as a claude.ai artifact.
+ *                  Edits are shared documents in the artifact's `db` capability
+ *                  (one document per row hash, live for every viewer); files are
+ *                  handed to the viewer through the `downloads` capability. When
+ *                  the view cannot run `db`, it degrades to LocalStore behaviour.
  */
+
+export interface StoreInfo {
+  /** Edits are shared with everyone who opens the page. */
+  shared: boolean
+  /** This viewer cannot write shared edits. */
+  readOnly: boolean
+  /** Short notice for the banner, or null. */
+  message: string | null
+}
+
 export interface Store {
-  readonly mode: 'server' | 'standalone'
+  readonly mode: 'server' | 'standalone' | 'artifact'
   loadDataset(): Promise<Dataset>
   loadEdits(): Promise<Record<string, Edit>>
   saveEdit(id: string, input: EditInput): Promise<Edit>
   deleteEdit(id: string): Promise<void>
+  /** Live updates from other people (shared stores). Returns an unsubscribe. */
+  subscribe?(onEdits: (edits: Record<string, Edit>) => void, onError?: (message: string) => void): () => void
+  /** Hand a generated file to the viewer where direct downloads are blocked. */
+  download?(filename: string, blob: Blob): Promise<void>
+  /** Resolve people ids to display names ("you" for the viewer). */
+  profiles?(ids: string[]): Promise<Record<string, string>>
+  info: StoreInfo
+  /** Fired when `info` changes after load (e.g. a refused write). */
+  onInfoChange: ((info: StoreInfo) => void) | null
+  /** Present when edits live in this browser (LocalStore, or an artifact view without db). */
+  local?: LocalStore
 }
 
 export interface EditsFile {
@@ -29,6 +56,7 @@ export interface EditsFile {
 
 const LS_EDITS_KEY = 'cl.edits.v1'
 const DATA_ELEMENT_ID = 'cl-data'
+const EDITS_COLLECTION = 'edits'
 
 // ---------------------------------------------------------------- helpers
 
@@ -51,6 +79,12 @@ function readEmbedded(): { dataset: Dataset; edits: Edit[] } | null {
 export function isStandalone(): boolean {
   const el = document.getElementById(DATA_ELEMENT_ID)
   return !!el && (el.textContent?.trim().length ?? 0) > 0
+}
+
+/** The claude.ai artifact runtime exposes window.claude.use(). */
+function hasArtifactRuntime(): boolean {
+  const w = window as unknown as { claude?: { use?: unknown } }
+  return typeof w.claude?.use === 'function'
 }
 
 /** Keep the edit with the latest updated_at for each row. */
@@ -94,6 +128,8 @@ export function editsToFile(edits: Record<string, Edit>, sourceFile?: string): E
 
 class ServerStore implements Store {
   readonly mode = 'server' as const
+  info: StoreInfo = { shared: true, readOnly: false, message: null }
+  onInfoChange: ((info: StoreInfo) => void) | null = null
   loadDataset() {
     return fetchDataset()
   }
@@ -108,13 +144,11 @@ class ServerStore implements Store {
   }
 }
 
-// ---------------------------------------------------------------- standalone
+// ---------------------------------------------------------------- standalone (browser storage)
 
 type FileHandle = {
   name: string
   createWritable(): Promise<{ write(data: Blob | string): Promise<void>; close(): Promise<void> }>
-  queryPermission?(opts: { mode: 'readwrite' }): Promise<'granted' | 'denied' | 'prompt'>
-  requestPermission?(opts: { mode: 'readwrite' }): Promise<'granted' | 'denied' | 'prompt'>
 }
 type SaveFilePicker = (opts: {
   suggestedName?: string
@@ -123,6 +157,9 @@ type SaveFilePicker = (opts: {
 
 export class LocalStore implements Store {
   readonly mode = 'standalone' as const
+  info: StoreInfo = { shared: false, readOnly: false, message: null }
+  onInfoChange: ((info: StoreInfo) => void) | null = null
+  readonly local: LocalStore = this
   private embedded = readEmbedded()
   private edits: Record<string, Edit> = {}
   private fileHandle: FileHandle | null = null
@@ -233,6 +270,217 @@ export class LocalStore implements Store {
   }
 }
 
+// ---------------------------------------------------------------- claude.ai artifact (shared db)
+
+// Minimal views of the runtime contract (0.2.x) this page relies on.
+interface DbDocSnap {
+  id: string
+  exists: boolean
+  data(): Record<string, unknown> | undefined
+}
+interface DbQuerySnap {
+  docs: DbDocSnap[]
+}
+interface DbError {
+  code: string
+  message: string
+}
+interface DbDocRef {
+  set(data: Record<string, unknown>): Promise<void>
+  delete(): Promise<void>
+}
+interface DbCollectionRef {
+  doc(id: string): DbDocRef
+  get(): Promise<DbQuerySnap>
+  onSnapshot(next: (snap: DbQuerySnap) => void, error?: (e: DbError) => void): () => void
+}
+interface DbNs {
+  collection(path: string): DbCollectionRef
+}
+interface UserNs {
+  id(): Promise<string | null>
+  can(name: string): Promise<boolean | null>
+  profiles(ids: readonly string[]): Promise<Record<string, { name: string; isMe: boolean }>>
+}
+interface DownloadsNs {
+  save(req: { filename: string; data: Blob | string }): Promise<{ status: string }>
+}
+interface ClaudeRuntime {
+  use(name: 'db'): Promise<DbNs | null>
+  use(name: 'user'): Promise<UserNs | null>
+  use(name: 'downloads'): Promise<DownloadsNs | null>
+}
+
+const READ_ONLY_MESSAGE =
+  'You can browse but not save: ask the owner to share this page with you as a Contributor (or Editor).'
+
+function toEdit(id: string, data: Record<string, unknown> | undefined): Edit | null {
+  if (!data) return null
+  return {
+    row_hash: id,
+    line_count_override: typeof data.line_count_override === 'number' ? data.line_count_override : null,
+    line_type_override: (data.line_type_override as Edit['line_type_override']) ?? null,
+    status: (data.status as Edit['status']) ?? 'Not started',
+    notes: typeof data.notes === 'string' ? data.notes : '',
+    follow_up_date: typeof data.follow_up_date === 'string' ? data.follow_up_date : null,
+    updated_at: typeof data.updated_at === 'string' ? data.updated_at : '',
+    updated_by: typeof data.updated_by === 'string' ? data.updated_by : null,
+  }
+}
+
+function describeDbError(e: unknown, fallback: string): string {
+  const err = e as Partial<DbError> | undefined
+  switch (err?.code) {
+    case 'invalid_argument':
+      return READ_ONLY_MESSAGE
+    case 'quota_exceeded':
+      return 'The shared store is full. Ask the owner to clean up old edits.'
+    case 'resource_exhausted':
+      return 'Too many saves at once. Wait a moment and try again.'
+    case 'revoked':
+      return 'Your access to this page changed. Reload to continue.'
+    case 'unavailable':
+      return 'The shared store is temporarily unavailable. Try again in a moment.'
+    default:
+      return err?.message || fallback
+  }
+}
+
+export class ArtifactStore implements Store {
+  readonly mode = 'artifact' as const
+  info: StoreInfo = { shared: false, readOnly: false, message: null }
+  onInfoChange: ((info: StoreInfo) => void) | null = null
+  local?: LocalStore
+  private embedded = readEmbedded()
+  private db: DbNs | null = null
+  private user: UserNs | null = null
+  private downloads: DownloadsNs | null = null
+  private userId: string | null = null
+  private edits: Record<string, Edit> = {}
+
+  private runtime(): ClaudeRuntime {
+    return (window as unknown as { claude: ClaudeRuntime }).claude
+  }
+
+  private setInfo(info: StoreInfo) {
+    this.info = info
+    this.onInfoChange?.(info)
+  }
+
+  async loadDataset(): Promise<Dataset> {
+    if (!this.embedded) throw new Error('No embedded dataset found in this page.')
+    return this.embedded.dataset
+  }
+
+  async loadEdits(): Promise<Record<string, Edit>> {
+    const rt = this.runtime()
+    const [db, user, downloads] = await Promise.all([rt.use('db'), rt.use('user'), rt.use('downloads')])
+    this.downloads = downloads
+    if (!db) {
+      // This view cannot run the shared store: keep working in this browser.
+      this.local = new LocalStore()
+      this.setInfo({
+        shared: false,
+        readOnly: false,
+        message:
+          'Shared saving is not available in this view, so your edits stay in this browser. Use the edits menu to save them to a file.',
+      })
+      return this.local.loadEdits()
+    }
+    this.db = db
+    this.user = user
+    this.userId = user ? await user.id() : null
+    const canWrite = user ? await user.can('data.write') : null
+    this.setInfo({
+      shared: true,
+      readOnly: canWrite === false,
+      message: canWrite === false ? READ_ONLY_MESSAGE : null,
+    })
+    const snap = await db.collection(EDITS_COLLECTION).get()
+    this.edits = {}
+    for (const d of snap.docs) {
+      const e = toEdit(d.id, d.data())
+      if (e) this.edits[d.id] = e
+    }
+    return { ...this.edits }
+  }
+
+  subscribe(onEdits: (edits: Record<string, Edit>) => void, onError?: (message: string) => void): () => void {
+    if (!this.db) return () => {}
+    return this.db.collection(EDITS_COLLECTION).onSnapshot(
+      (snap) => {
+        const next: Record<string, Edit> = {}
+        for (const d of snap.docs) {
+          const e = toEdit(d.id, d.data())
+          if (e) next[d.id] = e
+        }
+        this.edits = next
+        onEdits({ ...next })
+      },
+      (err) => onError?.(describeDbError(err, 'Live updates stopped. Reload the page to reconnect.')),
+    )
+  }
+
+  async saveEdit(id: string, input: EditInput): Promise<Edit> {
+    if (this.local) return this.local.saveEdit(id, input)
+    const edit: Edit = { row_hash: id, ...input, updated_at: nowIso(), updated_by: this.userId }
+    try {
+      await this.db!.collection(EDITS_COLLECTION).doc(id).set(edit as unknown as Record<string, unknown>)
+    } catch (e) {
+      if ((e as Partial<DbError>)?.code === 'invalid_argument') {
+        this.setInfo({ ...this.info, readOnly: true, message: READ_ONLY_MESSAGE })
+      }
+      throw new Error(describeDbError(e, 'Could not save the edit.'))
+    }
+    this.edits[id] = edit
+    return edit
+  }
+
+  async deleteEdit(id: string): Promise<void> {
+    if (this.local) return this.local.deleteEdit(id)
+    try {
+      await this.db!.collection(EDITS_COLLECTION).doc(id).delete()
+    } catch (e) {
+      if ((e as Partial<DbError>)?.code === 'invalid_argument') {
+        this.setInfo({ ...this.info, readOnly: true, message: READ_ONLY_MESSAGE })
+      }
+      throw new Error(describeDbError(e, 'Could not remove the edit.'))
+    }
+    delete this.edits[id]
+  }
+
+  async download(filename: string, blob: Blob): Promise<void> {
+    if (!this.downloads) throw new Error('Downloads are not available in this view.')
+    try {
+      await this.downloads.save({ filename, data: blob })
+    } catch (e) {
+      const code = (e as { code?: string })?.code
+      if (code === 'declined') throw new DeclinedDownload()
+      throw new Error((e as Error)?.message || 'The file could not be saved.')
+    }
+  }
+
+  async profiles(ids: string[]): Promise<Record<string, string>> {
+    const out: Record<string, string> = {}
+    if (!this.user || ids.length === 0) return out
+    const ps = await this.user.profiles(ids)
+    for (const id of ids) {
+      const p = ps[id]
+      out[id] = p ? (p.isMe ? 'you' : p.name || 'a colleague') : 'a colleague'
+    }
+    return out
+  }
+}
+
+/** Thrown when the viewer cancels a download prompt; not an error to show. */
+export class DeclinedDownload extends Error {
+  constructor() {
+    super('Download cancelled')
+    this.name = 'DeclinedDownload'
+  }
+}
+
 export function createStore(): Store {
-  return isStandalone() ? new LocalStore() : new ServerStore()
+  if (isStandalone()) return hasArtifactRuntime() ? new ArtifactStore() : new LocalStore()
+  return new ServerStore()
 }

@@ -74,6 +74,18 @@ session.  Any edits already in `data/closed_lost.sqlite` when you build are
 embedded as a starting point.  Rebuilding the file after a new import keeps
 your edits because they are keyed on the stable row hash.
 
+## 2d. Share the full app with colleagues (claude.ai artifact)
+
+`make standalone` also writes `data/Closed_Lost_Workbench.artifact.html`, the
+same page as a fragment for the claude.ai Artifact tool.  Published with the
+capabilities `db` (shared documents), `user` (who saved what) and `downloads`
+(CSV/Excel through the viewer), every person the owner shares the artifact
+with sees the same statuses, notes, follow-ups and overrides, live.  Viewers
+need **Contributor** (or Editor) access to save; Viewer/Commenter access is
+read-only and the page says so.  The code path is `ArtifactStore` in
+`frontend/src/lib/store.ts`; when the page is opened outside claude.ai it falls
+back to the browser-storage behaviour of the single file.
+
 ## 2c. Work on it with a colleague in Google Sheets
 
 ```bash

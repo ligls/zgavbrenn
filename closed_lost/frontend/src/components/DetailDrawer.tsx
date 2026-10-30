@@ -13,6 +13,10 @@ interface Props {
   onNext: () => void
   onSave: (id: string, input: EditInput) => Promise<void>
   onDeleteEdit: (id: string) => Promise<void>
+  /** The viewer cannot save shared edits. */
+  readOnly?: boolean
+  /** Display name of whoever saved the current edit (shared artifact). */
+  savedBy?: string
 }
 
 interface FormState {
@@ -33,9 +37,11 @@ function formFromRow(row: Row): FormState {
   }
 }
 
-export default function DetailDrawer({ row, index, total, onClose, onPrev, onNext, onSave, onDeleteEdit }: Props) {
+export default function DetailDrawer({ row, index, total, onClose, onPrev, onNext, onSave, onDeleteEdit, readOnly, savedBy }: Props) {
   const [form, setForm] = useState<FormState>(() => formFromRow(row))
   const [saving, setSaving] = useState(false)
+  const [confirmRemove, setConfirmRemove] = useState(false)
+  const [copied, setCopied] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -43,6 +49,8 @@ export default function DetailDrawer({ row, index, total, onClose, onPrev, onNex
     setForm(formFromRow(row))
     setError(null)
     setSavedAt(null)
+    setConfirmRemove(false)
+    setCopied(false)
   }, [row.id, row.edit?.updated_at]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const dirty = JSON.stringify(form) !== JSON.stringify(formFromRow(row))
@@ -98,16 +106,36 @@ export default function DetailDrawer({ row, index, total, onClose, onPrev, onNex
     }
   }
 
+  // Two-step removal: dialogs are not available in every host (the claude.ai viewer
+  // returns false from confirm()), so the confirmation lives in the page.
   const resetAll = async () => {
     if (!row.edit) return
-    if (!window.confirm('Remove the saved status, notes, follow-up and overrides for this opportunity?')) return
     setSaving(true)
     try {
       await onDeleteEdit(row.id)
+      setConfirmRemove(false)
     } catch (e) {
       setError((e as Error).message)
     } finally {
       setSaving(false)
+    }
+  }
+
+  const copyPhone = async () => {
+    if (!row.phone) return
+    try {
+      await navigator.clipboard.writeText(row.phone)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      const range = document.createRange()
+      const el = document.getElementById('drawer-phone')
+      if (el) {
+        range.selectNodeContents(el)
+        const sel = window.getSelection()
+        sel?.removeAllRanges()
+        sel?.addRange(range)
+      }
     }
   }
 
@@ -156,7 +184,25 @@ export default function DetailDrawer({ row, index, total, onClose, onPrev, onNex
               <dt>Account Name</dt>
               <dd>{row.account_name}</dd>
               <dt>Phone</dt>
-              <dd>{row.phone_tel ? <a href={`tel:${row.phone_tel}`}>{row.phone}</a> : <span className="muted">{row.phone ?? 'none'}</span>}</dd>
+              <dd className="phone-cell">
+                {row.phone ? (
+                  <>
+                    <span id="drawer-phone" className="phone-text">
+                      {row.phone}
+                    </span>
+                    <button type="button" className="mini" onClick={() => void copyPhone()} title="Copy the number">
+                      {copied ? 'Copied' : 'Copy'}
+                    </button>
+                    {row.phone_tel && (
+                      <a className="mini-link" href={`tel:${row.phone_tel}`} title="Call (works where the browser can place calls)">
+                        Call
+                      </a>
+                    )}
+                  </>
+                ) : (
+                  <span className="muted">none</span>
+                )}
+              </dd>
               <dt>Opportunity Name</dt>
               <dd>{row.opportunity_name}</dd>
               <dt>Close Date</dt>
@@ -235,6 +281,7 @@ export default function DetailDrawer({ row, index, total, onClose, onPrev, onNex
 
           <section className="drawer-section edit">
             <h4>Your work</h4>
+            {readOnly && <div className="readonly-note">View only: you can browse but your changes will not be saved.</div>}
             <div className="form-grid">
               <label>
                 <span>Line count override</span>
@@ -282,19 +329,35 @@ export default function DetailDrawer({ row, index, total, onClose, onPrev, onNex
             </div>
             {error && <div className="error">{error}</div>}
             <div className="form-actions">
-              <button type="button" className="primary" disabled={saving || !dirty} onClick={() => void save()}>
+              <button type="button" className="primary" disabled={saving || !dirty || readOnly} onClick={() => void save()}>
                 {saving ? 'Saving…' : 'Save'}
               </button>
-              <button type="button" disabled={saving || index >= total - 1} onClick={() => void save(onNext)} title="Save and open the next opportunity">
+              <button type="button" disabled={saving || index >= total - 1 || readOnly} onClick={() => void save(onNext)} title="Save and open the next opportunity">
                 Save &amp; next →
               </button>
-              {row.edit && (
-                <button type="button" className="danger link" disabled={saving} onClick={() => void resetAll()}>
+              {row.edit && !readOnly && !confirmRemove && (
+                <button type="button" className="danger link" disabled={saving} onClick={() => setConfirmRemove(true)}>
                   Remove saved edits
                 </button>
               )}
+              {row.edit && !readOnly && confirmRemove && (
+                <span className="confirm-inline">
+                  Remove status, notes, follow-up and overrides?
+                  <button type="button" className="danger" disabled={saving} onClick={() => void resetAll()}>
+                    Yes, remove
+                  </button>
+                  <button type="button" disabled={saving} onClick={() => setConfirmRemove(false)}>
+                    Cancel
+                  </button>
+                </span>
+              )}
               {savedAt && !dirty && <span className="saved">Saved ✓</span>}
-              {row.edit?.updated_at && <span className="muted small">last saved {row.edit.updated_at.replace('T', ' ')}</span>}
+              {row.edit?.updated_at && (
+                <span className="muted small">
+                  last saved {row.edit.updated_at.replace('T', ' ')}
+                  {savedBy ? ` by ${savedBy}` : ''}
+                </span>
+              )}
             </div>
           </section>
         </div>

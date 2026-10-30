@@ -6,6 +6,7 @@
 #   make dev       - Flask API + Vite dev server with hot reload (http://127.0.0.1:5173)
 #   make build     - rebuild frontend/dist
 #   make standalone - one self-contained HTML file (data embedded) -> data/Closed_Lost_Workbench.html
+#                    (+ data/Closed_Lost_Workbench.artifact.html, the fragment to publish as a shared claude.ai artifact)
 #   make sheets    - collaboration workbook for Google Sheets -> data/Closed_Lost_Q4_2024_collaboration.xlsx
 #   make test      - parser / repair / hint unit tests
 #

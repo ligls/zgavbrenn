@@ -78,9 +78,11 @@ export interface Edit {
   notes: string
   follow_up_date: string | null
   updated_at: string
+  /** Viewer id of whoever saved it (shared artifact only). */
+  updated_by?: string | null
 }
 
-export type EditInput = Omit<Edit, 'row_hash' | 'updated_at'>
+export type EditInput = Omit<Edit, 'row_hash' | 'updated_at' | 'updated_by'>
 
 /** Opportunity merged with its edit plus the derived values the UI filters on. */
 export interface Row extends Opportunity {
